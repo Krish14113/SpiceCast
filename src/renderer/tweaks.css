@@ -1,0 +1,7 @@
+/* Final contrast and spacing refinements */
+aside button:hover,aside button.active{color:#ffffff!important;background:#2b6c4c!important;text-shadow:0 1px 1px #082114}
+.card{background:#fcf5ef!important;border-color:#eadcd1}
+.toolbar,.table{background:#fcf5ef!important;border-color:#eadcd1!important}
+.table .head{background:#f5e9df}
+main section.grid.two>.card:first-child>label{display:block!important;margin:26px 0!important;padding-bottom:8px!important}
+main section.grid.two>.card:first-child>label+label{margin-top:34px!important}

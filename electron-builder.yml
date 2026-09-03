@@ -1,0 +1,20 @@
+appId: com.spicestar.spicecast
+productName: SpiceCast
+directories:
+  buildResources: build
+  output: release
+files:
+  - out/**
+  - package.json
+asarUnpack:
+  - node_modules/whatsapp-web.js/**
+  - node_modules/puppeteer-core/**
+win:
+  target:
+    - target: nsis
+      arch: x64
+nsis:
+  artifactName: ${productName}-Setup-${version}.${ext}
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
