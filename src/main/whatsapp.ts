@@ -3,6 +3,7 @@ import { Client, LocalAuth, MessageMedia } from 'whatsapp-web.js'
 import { app } from 'electron'
 import { join } from 'node:path'
 import type { WaStatus } from './types'
+import { resolveBrowser } from './browser'
 
 export class WhatsAppService extends EventEmitter {
   status: WaStatus = { state: 'idle' }; private client?: Client
@@ -11,14 +12,15 @@ export class WhatsAppService extends EventEmitter {
     if (this.client) return
     this.set({ state: 'launching', message: 'Opening WhatsApp Web…' })
     try {
-      this.client = new Client({ authStrategy: new LocalAuth({ clientId: 'primary', dataPath: join(app.getPath('userData'), 'sessions') }), puppeteer: { headless: true, executablePath: chromePath || undefined, args: ['--no-sandbox', '--disable-setuid-sandbox'] } })
+      const executablePath = resolveBrowser(chromePath)
+      this.client = new Client({ authStrategy: new LocalAuth({ clientId: 'primary', dataPath: join(app.getPath('userData'), 'sessions') }), puppeteer: { headless: true, executablePath, args: ['--no-sandbox', '--disable-setuid-sandbox'] } })
       this.client.on('qr', qr => { this.set({ state: 'qr', message: 'Scan this QR code with WhatsApp' }); this.emit('qr', qr) })
       this.client.on('authenticated', () => this.set({ state: 'authenticated', message: 'Authenticated. Loading…' }))
       this.client.on('ready', () => { const info = this.client?.info; this.set({ state: 'ready', me: info ? { name: info.pushname || 'WhatsApp user', number: info.wid.user } : undefined }) })
       this.client.on('auth_failure', message => this.set({ state: 'auth_failure', message }))
       this.client.on('disconnected', reason => { this.client = undefined; this.set({ state: 'disconnected', message: String(reason) }) })
       await this.client.initialize()
-    } catch (error) { this.client = undefined; this.set({ state: 'error', message: error instanceof Error ? error.message : String(error) }) }
+    } catch (error) { try { await this.client?.destroy() } catch { /* launch did not complete */ }; this.client = undefined; this.set({ state: 'error', message: error instanceof Error ? error.message : String(error) }) }
   }
   async logout() { if (this.client) { try { await this.client.logout(); await this.client.destroy() } catch { /* already unavailable */ } }; this.client = undefined; this.set({ state: 'idle' }) }
   async disconnect() { if (this.client) { try { await this.client.destroy() } catch { /* browser already closed */ } }; this.client = undefined }
