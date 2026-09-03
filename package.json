@@ -8,7 +8,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build && tsc --noEmit",
     "preview": "electron-vite preview",
-    "package": "npm run build && electron-builder",
+    "package": "npm run build && electron-builder --publish never",
     "package:dir": "npm run build && electron-builder --dir"
   },
   "dependencies": {
