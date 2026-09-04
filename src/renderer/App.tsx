@@ -50,6 +50,24 @@ export function App() {
       c();
     };
   }, []);
+  useEffect(() => {
+    const reclaimTextInputFocus = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        !(
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement
+        )
+      )
+        return;
+      window.focus();
+      window.requestAnimationFrame(() => target.focus({ preventScroll: true }));
+    };
+    document.addEventListener("pointerdown", reclaimTextInputFocus, true);
+    return () =>
+      document.removeEventListener("pointerdown", reclaimTextInputFocus, true);
+  }, []);
   if (!data) return <main className="loading">Opening workspace…</main>;
   return (
     <div className="app">
