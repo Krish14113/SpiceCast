@@ -11,7 +11,8 @@ import type { Contact, Group, Settings } from './types'
 let win: BrowserWindow | undefined
 const wa = new WhatsAppService(), queue = new SendQueue()
 const send = (channel: string, value: unknown) => win?.webContents.send(channel, value)
-wa.on('status', value => send('wa:status', value)); wa.on('qr', value => send('wa:qr', value)); queue.on('progress', value => send('send:progress', value))
+const restoreInputFocus = () => { if (win && !win.isDestroyed()) { win.focus(); win.webContents.focus() } }
+wa.on('status', value => send('wa:status', value)); wa.on('qr', value => send('wa:qr', value)); queue.on('progress', value => { send('send:progress', value); if (!value.running && value.campaign) { restoreInputFocus(); setTimeout(restoreInputFocus, 150) } })
 function createWindow() { win = new BrowserWindow({ width: 1280, height: 800, minWidth: 980, minHeight: 650, webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false } }); win.webContents.setWindowOpenHandler(() => ({ action: 'deny' })); if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL); else win.loadFile(join(__dirname, '../renderer/index.html')) }
 const asContact = (input: Partial<Contact>, country?: string): Contact => { const rawPhone = String(input.rawPhone || input.phone || '').trim(); const parsed = parsePhoneNumberFromString(rawPhone, country as never); return { id: input.id || randomUUID(), name: String(input.name || '').trim(), phone: parsed?.isValid() ? parsed.number.replace(/^\+/, '') : '', rawPhone, groupIds: input.groupIds || [], notes: input.notes, createdAt: input.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() } }
 function registerIpc() {

@@ -333,7 +333,7 @@ function Contacts({ data, refresh, notify }: any) {
           </select>
           <button
             className="primary"
-            onClick={saveContact}
+            onClick={() => saveContact()}
             disabled={!firstName.trim() || !phone.trim()}
           >
             Add contact
