@@ -18,17 +18,26 @@ jobs:
         shell: pwsh
         run: npm version $($env:GITHUB_REF_NAME.TrimStart('v')) --no-git-tag-version
       - run: npm run build
-      - name: Create GitHub release and publish updater files
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: npx electron-builder --publish always
-        env:
-          GH_TOKEN: ${{ github.token }}
-      - name: Build installer artifact
-        if: "!startsWith(github.ref, 'refs/tags/v')"
+      - name: Build installer and updater files
         run: npx electron-builder --publish never
+      - name: Publish production release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
       - uses: actions/upload-artifact@v4
         with:
           name: SpiceCast-Windows
-          path: release/*.exe
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
