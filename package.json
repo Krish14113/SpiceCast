@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
+    "electron-updater": "^6.8.9",
     "libphonenumber-js": "^1.12.36",
     "papaparse": "^5.5.3",
     "qrcode": "^1.5.4",
@@ -31,6 +32,7 @@
     "electron": "^37.4.0",
     "electron-builder": "^26.0.12",
     "electron-vite": "^4.0.0",
+    "png-to-ico": "^3.0.2",
     "typescript": "^5.9.2",
     "vite": "^7.1.7"
   }

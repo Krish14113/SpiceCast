@@ -27,6 +27,10 @@ contextBridge.exposeInMainWorld('api', {
   stop: () => invoke('send:stop'),
   reveal: () => invoke('data:reveal'),
   reset: () => invoke('data:reset'),
+  updateStatus: () => invoke('updates:status'),
+  checkUpdates: () => invoke('updates:check'),
+  downloadUpdate: () => invoke('updates:download'),
+  installUpdate: () => invoke('updates:install'),
   focusWindow: () => ipcRenderer.send('window:focus'),
   on: (channel: string, listener: (value: any) => void) => {
     const handler = (_: unknown, value: any) => listener(value)

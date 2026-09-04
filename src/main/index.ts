@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import Papa from 'papaparse'
@@ -11,8 +12,18 @@ import type { Contact, Group, Settings } from './types'
 let win: BrowserWindow | undefined
 const wa = new WhatsAppService(), queue = new SendQueue()
 const send = (channel: string, value: unknown) => win?.webContents.send(channel, value)
+let updateStatus: { state: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'unavailable' | 'error'; message: string; version?: string; percent?: number } = { state: 'idle', message: 'Check GitHub Releases for a newer SpiceCast version.' }
+const setUpdateStatus = (next: typeof updateStatus) => { updateStatus = next; send('update:status', updateStatus) }
 const restoreInputFocus = () => { if (win && !win.isDestroyed()) { win.focus(); win.webContents.focus() } }
 wa.on('status', value => send('wa:status', value)); wa.on('qr', value => send('wa:qr', value)); queue.on('progress', value => { send('send:progress', value); if (!value.running && value.campaign) { restoreInputFocus(); setTimeout(restoreInputFocus, 150) } })
+autoUpdater.autoDownload = false
+autoUpdater.autoInstallOnAppQuit = true
+autoUpdater.on('checking-for-update', () => setUpdateStatus({ state: 'checking', message: 'Checking for updates…' }))
+autoUpdater.on('update-available', info => setUpdateStatus({ state: 'available', version: info.version, message: `SpiceCast ${info.version} is available.` }))
+autoUpdater.on('update-not-available', () => setUpdateStatus({ state: 'idle', message: 'You have the latest version of SpiceCast.' }))
+autoUpdater.on('download-progress', progress => setUpdateStatus({ state: 'downloading', percent: Math.round(progress.percent), message: `Downloading update… ${Math.round(progress.percent)}%` }))
+autoUpdater.on('update-downloaded', info => setUpdateStatus({ state: 'downloaded', version: info.version, message: `SpiceCast ${info.version} is ready to install.` }))
+autoUpdater.on('error', error => setUpdateStatus({ state: 'error', message: `Could not check for updates: ${error.message}` }))
 function createWindow() { win = new BrowserWindow({ width: 1280, height: 800, minWidth: 980, minHeight: 650, webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false } }); win.webContents.setWindowOpenHandler(() => ({ action: 'deny' })); if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL); else win.loadFile(join(__dirname, '../renderer/index.html')) }
 const asContact = (input: Partial<Contact>, country?: string): Contact => { const rawPhone = String(input.rawPhone || input.phone || '').trim(); const parsed = parsePhoneNumberFromString(rawPhone, country as never); return { id: input.id || randomUUID(), name: String(input.name || '').trim(), phone: parsed?.isValid() ? parsed.number.replace(/^\+/, '') : '', rawPhone, groupIds: input.groupIds || [], notes: input.notes, createdAt: input.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() } }
 function registerIpc() {
@@ -24,6 +35,10 @@ function registerIpc() {
     }
   })
   ipcMain.handle('data:get', () => getData())
+  ipcMain.handle('updates:status', () => updateStatus)
+  ipcMain.handle('updates:check', async () => { if (!app.isPackaged) return setUpdateStatus({ state: 'unavailable', message: 'Updates are available from an installed SpiceCast app.' }); await autoUpdater.checkForUpdates(); return updateStatus })
+  ipcMain.handle('updates:download', async () => { if (!app.isPackaged) return setUpdateStatus({ state: 'unavailable', message: 'Updates are available from an installed SpiceCast app.' }); await autoUpdater.downloadUpdate(); return updateStatus })
+  ipcMain.handle('updates:install', () => { if (updateStatus.state === 'downloaded') autoUpdater.quitAndInstall(false, true) })
   ipcMain.handle('contacts:save', (_, input: Partial<Contact>) => { const contact = asContact(input); if (!contact.name || !contact.phone) throw new Error('Enter a name and a valid phone number with its country prefix (for example +91…).'); const all = getData().contacts; const i = all.findIndex(c => c.id === contact.id); if (i < 0 && all.some(c => c.phone === contact.phone)) throw new Error('This phone number is already in your contacts.'); i < 0 ? all.push(contact) : all[i] = contact; scheduleSave(); return contact })
   ipcMain.handle('contacts:delete', (_, ids: string[]) => { getData().contacts = getData().contacts.filter(c => !ids.includes(c.id)); scheduleSave() })
   ipcMain.handle('groups:save', (_, group: Partial<Group>) => { const item: Group = { id: group.id || randomUUID(), name: String(group.name || '').trim(), createdAt: group.createdAt || new Date().toISOString() }; if (!item.name) throw new Error('Group name is required'); const all = getData().groups, i = all.findIndex(g => g.id === item.id); i < 0 ? all.push(item) : all[i] = item; scheduleSave(); return item })

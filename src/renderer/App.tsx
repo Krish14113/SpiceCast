@@ -13,6 +13,20 @@ const nav: [Tab, string][] = [
 ];
 const fmt = (s?: string) => (s ? new Date(s).toLocaleString() : "—");
 const fileName = (path: string) => path.split(/[\\/]/).pop() || path;
+function useDraftState<T>(key: string, initialValue: T) {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const saved = localStorage.getItem(key);
+      return saved ? (JSON.parse(saved) as T) : initialValue;
+    } catch {
+      return initialValue;
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem(key, JSON.stringify(value));
+  }, [key, value]);
+  return [value, setValue] as const;
+}
 function ConfirmDialog({ title, message, confirmLabel = "Confirm", danger = false, onConfirm, onCancel }: any) {
   return <div className="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
     <div className="dialog confirmDialog">
@@ -208,8 +222,11 @@ function Connect({ wa, qr, notify }: any) {
   );
 }
 function Contacts({ data, refresh, notify }: any) {
-  const [selected, setSelected] = useState<string[]>([]),
-    [query, setQuery] = useState(""),
+  const [selected, setSelected] = useDraftState<string[]>(
+    "spicecast.contacts.selected",
+    [],
+  );
+  const [query, setQuery] = useState(""),
     [csvRows, setCsvRows] = useState<any[] | null>(null),
     [firstName, setFirstName] = useState(""),
     [lastName, setLastName] = useState(""),
@@ -300,6 +317,9 @@ function Contacts({ data, refresh, notify }: any) {
           onChange={(e) => setQuery(e.target.value)}
         />
         <button onClick={importCsv}>Import CSV</button>
+        <button disabled={!selected.length} onClick={() => setSelected([])}>
+          Clear selection
+        </button>
         <button
           className="danger"
           disabled={!selected.length}
@@ -699,13 +719,25 @@ function Lists({ data, refresh, notify }: any) {
   </>;
 }
 function Compose({ data, job, notify }: any) {
-  const [lists, setLists] = useState<string[]>([]),
-    [waGroups, setWaGroups] = useState<any[]>([]),
-    [selectedWaGroups, setSelectedWaGroups] = useState<string[]>([]),
+  const [lists, setLists] = useDraftState<string[]>(
+    "spicecast.compose.lists",
+    [],
+  );
+  const [selectedWaGroups, setSelectedWaGroups] = useDraftState<string[]>(
+    "spicecast.compose.whatsapp-groups",
+    [],
+  );
+  const [message, setMessage] = useDraftState(
+    "spicecast.compose.message",
+    "",
+  );
+  const [mediaPaths, setMediaPaths] = useDraftState<string[]>(
+    "spicecast.compose.media",
+    [],
+  );
+  const [waGroups, setWaGroups] = useState<any[]>([]),
     [picker, setPicker] = useState(false),
     [search, setSearch] = useState(""),
-    [message, setMessage] = useState(""),
-    [mediaPaths, setMediaPaths] = useState<string[]>([]),
     [notice, setNotice] = useState(""),
     [confirmingSend, setConfirmingSend] = useState(false);
   const wasSending = useRef(false);
@@ -1062,7 +1094,12 @@ function Settings({ data, refresh, notify }: any) {
   const [min, setMin] = useState(data.settings.minDelaySec),
     [max, setMax] = useState(data.settings.maxDelaySec),
     [path, setPath] = useState(data.settings.chromePath || ""),
-    [confirmingReset, setConfirmingReset] = useState(false);
+    [confirmingReset, setConfirmingReset] = useState(false),
+    [update, setUpdate] = useState<any>({ state: "idle", message: "Check GitHub Releases for a newer SpiceCast version." });
+  useEffect(() => {
+    window.api.updateStatus().then(setUpdate);
+    return window.api.on("update:status", setUpdate);
+  }, []);
   const save = async () => {
     await window.api.saveSettings({
       minDelaySec: Math.max(0, Number(min)),
@@ -1078,6 +1115,13 @@ function Settings({ data, refresh, notify }: any) {
     refresh();
     notify("Local contacts and settings cleared.");
   };
+  const handleUpdate = async () => {
+    if (update.state === "available") return window.api.downloadUpdate();
+    if (update.state === "downloaded") return window.api.installUpdate();
+    const next = await window.api.checkUpdates();
+    if (next) setUpdate(next);
+  };
+  const updateButton = update.state === "available" ? "Download update" : update.state === "downloaded" ? "Restart and install" : update.state === "checking" ? "Checking…" : update.state === "downloading" ? `Downloading… ${update.percent || 0}%` : "Check for updates";
   return <>
     <section className="grid two">
       <div className="card">
@@ -1110,6 +1154,13 @@ function Settings({ data, refresh, notify }: any) {
         </label>
         <button className="primary" onClick={save}>
           Save settings
+        </button>
+      </div>
+      <div className="card">
+        <h2>App updates</h2>
+        <p className="muted">{update.message}</p>
+        <button className="primary" onClick={handleUpdate} disabled={update.state === "checking" || update.state === "downloading" || update.state === "unavailable"}>
+          {updateButton}
         </button>
       </div>
       <div className="card">
