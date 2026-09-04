@@ -61,7 +61,7 @@ export function App() {
         )
       )
         return;
-      window.focus();
+      window.api.focusWindow();
       window.requestAnimationFrame(() => target.focus({ preventScroll: true }));
     };
     document.addEventListener("pointerdown", reclaimTextInputFocus, true);

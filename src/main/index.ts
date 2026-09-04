@@ -16,6 +16,13 @@ wa.on('status', value => send('wa:status', value)); wa.on('qr', value => send('w
 function createWindow() { win = new BrowserWindow({ width: 1280, height: 800, minWidth: 980, minHeight: 650, webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false } }); win.webContents.setWindowOpenHandler(() => ({ action: 'deny' })); if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL); else win.loadFile(join(__dirname, '../renderer/index.html')) }
 const asContact = (input: Partial<Contact>, country?: string): Contact => { const rawPhone = String(input.rawPhone || input.phone || '').trim(); const parsed = parsePhoneNumberFromString(rawPhone, country as never); return { id: input.id || randomUUID(), name: String(input.name || '').trim(), phone: parsed?.isValid() ? parsed.number.replace(/^\+/, '') : '', rawPhone, groupIds: input.groupIds || [], notes: input.notes, createdAt: input.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() } }
 function registerIpc() {
+  ipcMain.on('window:focus', event => {
+    const owner = BrowserWindow.fromWebContents(event.sender)
+    if (owner && !owner.isDestroyed()) {
+      owner.focus()
+      owner.webContents.focus()
+    }
+  })
   ipcMain.handle('data:get', () => getData())
   ipcMain.handle('contacts:save', (_, input: Partial<Contact>) => { const contact = asContact(input); if (!contact.name || !contact.phone) throw new Error('Enter a name and a valid phone number with its country prefix (for example +91…).'); const all = getData().contacts; const i = all.findIndex(c => c.id === contact.id); if (i < 0 && all.some(c => c.phone === contact.phone)) throw new Error('This phone number is already in your contacts.'); i < 0 ? all.push(contact) : all[i] = contact; scheduleSave(); return contact })
   ipcMain.handle('contacts:delete', (_, ids: string[]) => { getData().contacts = getData().contacts.filter(c => !ids.includes(c.id)); scheduleSave() })
