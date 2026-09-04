@@ -13,6 +13,18 @@ const nav: [Tab, string][] = [
 ];
 const fmt = (s?: string) => (s ? new Date(s).toLocaleString() : "—");
 const fileName = (path: string) => path.split(/[\\/]/).pop() || path;
+function ConfirmDialog({ title, message, confirmLabel = "Confirm", danger = false, onConfirm, onCancel }: any) {
+  return <div className="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <div className="dialog confirmDialog">
+      <h2 id="confirm-title">{title}</h2>
+      <p>{message}</p>
+      <div className="actions">
+        <button onClick={onCancel}>Cancel</button>
+        <button className={danger ? "danger" : "primary"} onClick={onConfirm}>{confirmLabel}</button>
+      </div>
+    </div>
+  </div>;
+}
 export function App() {
   const [tab, setTab] = useState<Tab>("connect"),
     [data, setData] = useState<any>(),
@@ -540,7 +552,8 @@ function Contacts({ data, refresh, notify }: any) {
 function Lists({ data, refresh, notify }: any) {
   const [selected, setSelected] = useState(""),
     [renaming, setRenaming] = useState(false),
-    [name, setName] = useState("");
+    [name, setName] = useState(""),
+    [confirmingDelete, setConfirmingDelete] = useState(false);
   const list = data.groups.find((g: any) => g.id === selected);
   const members = data.contacts.filter((c: any) =>
     c.groupIds.includes(selected),
@@ -557,18 +570,15 @@ function Lists({ data, refresh, notify }: any) {
     notify(`List renamed to “${name.trim()}”.`);
   };
   const removeList = async () => {
-    if (
-      !list ||
-      !confirm(`Delete “${list.name}”? Its contacts will remain in Contacts.`)
-    )
-      return;
+    if (!list) return;
     const deleted = await window.api.deleteGroup(list.id);
     setSelected("");
     setRenaming(false);
+    setConfirmingDelete(false);
     refresh();
     notify(`List “${deleted}” deleted.`);
   };
-  return (
+  return <>
     <section className="grid two">
       <div className="card">
         <h2>Your lists</h2>
@@ -611,7 +621,7 @@ function Lists({ data, refresh, notify }: any) {
               >
                 Rename
               </button>{" "}
-              <button className="danger" onClick={removeList}>
+              <button className="danger" onClick={() => setConfirmingDelete(true)}>
                 Delete list
               </button>
             </span>
@@ -669,7 +679,8 @@ function Lists({ data, refresh, notify }: any) {
         )}
       </div>
     </section>
-  );
+    {confirmingDelete && list && <ConfirmDialog title="Delete list?" message={`Delete “${list.name}”? Its contacts will remain in Contacts.`} confirmLabel="Delete list" danger onConfirm={removeList} onCancel={() => setConfirmingDelete(false)} />}
+  </>;
 }
 function Compose({ data, job, notify }: any) {
   const [lists, setLists] = useState<string[]>([]),
@@ -679,7 +690,8 @@ function Compose({ data, job, notify }: any) {
     [search, setSearch] = useState(""),
     [message, setMessage] = useState(""),
     [mediaPaths, setMediaPaths] = useState<string[]>([]),
-    [notice, setNotice] = useState("");
+    [notice, setNotice] = useState(""),
+    [confirmingSend, setConfirmingSend] = useState(false);
   const wasSending = useRef(false);
   useEffect(() => {
     if (job.running) {
@@ -750,17 +762,15 @@ function Compose({ data, job, notify }: any) {
       notify(error instanceof Error ? error.message : String(error), true);
     }
   };
-  const start = async () => {
+  const requestStart = () => {
     if (!targets || (!message.trim() && !mediaPaths.length))
       return setNotice(
         "Choose a list or WhatsApp group, and add a message or media file.",
       );
-    if (
-      !confirm(
-        `Send this message to ${recipients.length} contact${recipients.length === 1 ? "" : "s"} and ${selectedWaGroups.length} WhatsApp group${selectedWaGroups.length === 1 ? "" : "s"}?`,
-      )
-    )
-      return;
+    setConfirmingSend(true);
+  };
+  const start = async () => {
+    setConfirmingSend(false);
     try {
       await window.api.start(
         recipients.map((c: any) => c.id),
@@ -884,7 +894,7 @@ function Compose({ data, job, notify }: any) {
         </div>
         <button
           className="primary send"
-          onClick={start}
+          onClick={requestStart}
           disabled={job.running || !targets}
         >
           Send message
@@ -939,6 +949,15 @@ function Compose({ data, job, notify }: any) {
             </div>
           </div>
         </div>
+      )}
+      {confirmingSend && (
+        <ConfirmDialog
+          title="Send message?"
+          message={`Send this message to ${recipients.length} contact${recipients.length === 1 ? "" : "s"} and ${selectedWaGroups.length} WhatsApp group${selectedWaGroups.length === 1 ? "" : "s"}?`}
+          confirmLabel="Send message"
+          onConfirm={start}
+          onCancel={() => setConfirmingSend(false)}
+        />
       )}
     </section>
   );
@@ -1026,7 +1045,8 @@ function History() {
 function Settings({ data, refresh, notify }: any) {
   const [min, setMin] = useState(data.settings.minDelaySec),
     [max, setMax] = useState(data.settings.maxDelaySec),
-    [path, setPath] = useState(data.settings.chromePath || "");
+    [path, setPath] = useState(data.settings.chromePath || ""),
+    [confirmingReset, setConfirmingReset] = useState(false);
   const save = async () => {
     await window.api.saveSettings({
       minDelaySec: Math.max(0, Number(min)),
@@ -1036,7 +1056,13 @@ function Settings({ data, refresh, notify }: any) {
     refresh();
     notify("Settings saved successfully.");
   };
-  return (
+  const resetLocalData = async () => {
+    await window.api.reset();
+    setConfirmingReset(false);
+    refresh();
+    notify("Local contacts and settings cleared.");
+  };
+  return <>
     <section className="grid two">
       <div className="card">
         <h2>Defaults</h2>
@@ -1085,17 +1111,12 @@ function Settings({ data, refresh, notify }: any) {
         </p>
         <button
           className="danger"
-          onClick={async () => {
-            if (confirm("Clear local contacts and settings?")) {
-              await window.api.reset();
-              refresh();
-              notify("Local contacts and settings cleared.");
-            }
-          }}
+          onClick={() => setConfirmingReset(true)}
         >
           Clear local data
         </button>
       </div>
     </section>
-  );
+    {confirmingReset && <ConfirmDialog title="Clear local data?" message="Clear local contacts and settings? Send history will be retained separately." confirmLabel="Clear local data" danger onConfirm={resetLocalData} onCancel={() => setConfirmingReset(false)} />}
+  </>;
 }
