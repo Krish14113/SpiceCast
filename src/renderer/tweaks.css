@@ -5,3 +5,5 @@ aside button:hover,aside button.active{color:#ffffff!important;background:#2b6c4
 .table .head{background:#f5e9df}
 main section.grid.two>.card:first-child>label{display:block!important;margin:26px 0!important;padding-bottom:8px!important}
 main section.grid.two>.card:first-child>label+label{margin-top:34px!important}
+.table .tr{grid-template-columns:34px 1.2fr 1fr 1fr 58px}
+.editButton{width:34px;height:34px;padding:0!important;display:grid;place-items:center;justify-self:end;font-size:18px;line-height:1;color:#1e7046;border-color:#c6ddd0!important}
