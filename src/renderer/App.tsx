@@ -1157,13 +1157,6 @@ function Settings({ data, refresh, notify }: any) {
         </button>
       </div>
       <div className="card">
-        <h2>App updates</h2>
-        <p className="muted">{update.message}</p>
-        <button className="primary" onClick={handleUpdate} disabled={update.state === "checking" || update.state === "downloading" || update.state === "unavailable"}>
-          {updateButton}
-        </button>
-      </div>
-      <div className="card">
         <h2>Data & session</h2>
         <p>
           Contacts, settings, and audit history are stored only on this
@@ -1185,5 +1178,13 @@ function Settings({ data, refresh, notify }: any) {
       </div>
     </section>
     {confirmingReset && <ConfirmDialog title="Clear local data?" message="Clear local contacts and settings? Send history will be retained separately." confirmLabel="Clear local data" danger onConfirm={resetLocalData} onCancel={() => setConfirmingReset(false)} />}
+            <div className="card">
+        <h2>App updates</h2>
+        <p className="muted">{update.message}</p>
+        <button className="primary" onClick={handleUpdate} disabled={update.state === "checking" || update.state === "downloading" || update.state === "unavailable"}>
+          {updateButton}
+        </button>
+      </div>
   </>;
+  
 }
