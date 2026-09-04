@@ -553,10 +553,16 @@ function Lists({ data, refresh, notify }: any) {
   const [selected, setSelected] = useState(""),
     [renaming, setRenaming] = useState(false),
     [name, setName] = useState(""),
+    [memberQuery, setMemberQuery] = useState(""),
     [confirmingDelete, setConfirmingDelete] = useState(false);
   const list = data.groups.find((g: any) => g.id === selected);
   const members = data.contacts.filter((c: any) =>
     c.groupIds.includes(selected),
+  );
+  const visibleMembers = members.filter((contact: any) =>
+    `${contact.name} ${contact.phone}`
+      .toLowerCase()
+      .includes(memberQuery.toLowerCase()),
   );
   const rename = async () => {
     if (!list || !name.trim()) return;
@@ -592,6 +598,7 @@ function Lists({ data, refresh, notify }: any) {
               onClick={() => {
                 setSelected(g.id);
                 setRenaming(false);
+                setMemberQuery("");
               }}
             >
               {g.name}
@@ -644,12 +651,18 @@ function Lists({ data, refresh, notify }: any) {
         {list ? (
           <>
             <p className="muted">
-              Remove a contact from this list without deleting it from your
-              address book.
+              If you remove a contact, it is removed from the list only, not the contacts.
             </p>
-            {members.length ? (
+            {members.length ? <>
+              <input
+                className="memberSearch"
+                placeholder="Search contacts in this list…"
+                value={memberQuery}
+                onChange={(event) => setMemberQuery(event.target.value)}
+              />
+              {visibleMembers.length ? (
               <div className="memberList">
-                {members.map((c: any) => (
+                {visibleMembers.map((c: any) => (
                   <div key={c.id}>
                     <span>
                       <b>{c.name}</b>
@@ -669,6 +682,9 @@ function Lists({ data, refresh, notify }: any) {
                 ))}
               </div>
             ) : (
+              <p className="muted">No contacts match your search.</p>
+            )}
+            </> : (
               <p className="muted">This list has no contacts.</p>
             )}
           </>
