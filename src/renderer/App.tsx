@@ -231,8 +231,7 @@ function Contacts({ data, refresh, notify }: any) {
     [firstName, setFirstName] = useState(""),
     [lastName, setLastName] = useState(""),
     [phone, setPhone] = useState(""),
-    [list, setList] = useState(""),
-    [newList, setNewList] = useState(""),
+    [listId, setListId] = useState(""),
     [formError, setFormError] = useState(""),
     [editing, setEditing] = useState<any>(null);
   const rows = data.contacts
@@ -250,13 +249,14 @@ function Contacts({ data, refresh, notify }: any) {
         name: `${firstName} ${lastName}`.trim(),
         phone,
         rawPhone: phone,
-        groupIds: list ? [list] : [],
+        groupIds: listId ? [listId] : [],
       };
       await window.api.saveContact(payload);
       setEditing(null);
       setFirstName("");
       setLastName("");
       setPhone("");
+      setListId("");
       setFormError("");
       refresh();
       notify(
@@ -267,16 +267,6 @@ function Contacts({ data, refresh, notify }: any) {
     } catch (e) {
       setFormError(e instanceof Error ? e.message : "Could not save contact");
       notify("Contact could not be saved.", true);
-    }
-  };
-  const createList = async () => {
-    try {
-      await window.api.saveGroup({ name: newList });
-      setNewList("");
-      refresh();
-      notify(`List “${newList}” created successfully.`);
-    } catch {
-      notify("List could not be created.", true);
     }
   };
   const importCsv = async () => {
@@ -333,28 +323,6 @@ function Contacts({ data, refresh, notify }: any) {
           Delete selected
         </button>
       </div>
-      <div className="card">
-        <h2>Create a list</h2>
-        <p className="muted">
-          Lists let you choose a set of contacts quickly when composing a
-          broadcast.
-        </p>
-        <div className="inline">
-          <input
-            placeholder="Type a name..."
-            value={newList}
-            onChange={(e) => setNewList(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && createList()}
-          />
-          <button
-            className="primary"
-            onClick={createList}
-            disabled={!newList.trim()}
-          >
-            Create list
-          </button>
-        </div>
-      </div>
       <div className="card contactForm">
         <h2>Add a contact manually</h2>
         <div className="inline">
@@ -373,11 +341,11 @@ function Contacts({ data, refresh, notify }: any) {
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
           />
-          <select value={list} onChange={(e) => setList(e.target.value)}>
+          <select value={listId} onChange={(e) => setListId(e.target.value)}>
             <option value="">No list</option>
-            {data.groups.map((g: any) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
+            {data.groups.map((group: any) => (
+              <option key={group.id} value={group.id}>
+                {group.name}
               </option>
             ))}
           </select>
@@ -391,32 +359,6 @@ function Contacts({ data, refresh, notify }: any) {
         </div>
         {formError && <p className="formError">{formError}</p>}
       </div>
-      {selected.length > 0 && (
-        <div className="assign">
-          <b>
-            Add {selected.length} selected contact
-            {selected.length === 1 ? "" : "s"} to:
-          </b>{" "}
-          {data.groups.length ? (
-            data.groups.map((g: any) => (
-              <button
-                key={g.id}
-                onClick={async () => {
-                  await window.api.assignGroup(selected, g.id);
-                  refresh();
-                  notify(
-                    `${selected.length} contact${selected.length === 1 ? "" : "s"} added to “${g.name}” successfully.`,
-                  );
-                }}
-              >
-                {g.name}
-              </button>
-            ))
-          ) : (
-            <span> Create a list above first.</span>
-          )}
-        </div>
-      )}
       <div className="table">
         <div className="tr head">
           <input
@@ -429,7 +371,6 @@ function Contacts({ data, refresh, notify }: any) {
           />
           <span>Name</span>
           <span>Phone</span>
-          <span>Lists</span>
           <span>Action</span>
         </div>
         {rows.map((c: any) => (
@@ -447,15 +388,6 @@ function Contacts({ data, refresh, notify }: any) {
             />
             <b>{c.name}</b>
             <span>+{c.phone}</span>
-            <span>
-              {c.groupIds
-                .map(
-                  (id: string) =>
-                    data.groups.find((g: any) => g.id === id)?.name,
-                )
-                .filter(Boolean)
-                .join(", ") || "—"}
-            </span>
             <button
               className="editButton"
               title={`Edit ${c.name}`}
@@ -574,26 +506,53 @@ function Lists({ data, refresh, notify }: any) {
     [renaming, setRenaming] = useState(false),
     [name, setName] = useState(""),
     [memberQuery, setMemberQuery] = useState(""),
+    [createOpen, setCreateOpen] = useState(false),
+    [newListName, setNewListName] = useState(""),
+    [pickerOpen, setPickerOpen] = useState(false),
+    [pickerQuery, setPickerQuery] = useState(""),
+    [pickedContactIds, setPickedContactIds] = useState<string[]>([]),
     [confirmingDelete, setConfirmingDelete] = useState(false);
   const list = data.groups.find((g: any) => g.id === selected);
-  const members = data.contacts.filter((c: any) =>
-    c.groupIds.includes(selected),
-  );
+  const members = data.contacts.filter((c: any) => c.groupIds.includes(selected));
   const visibleMembers = members.filter((contact: any) =>
-    `${contact.name} ${contact.phone}`
-      .toLowerCase()
-      .includes(memberQuery.toLowerCase()),
+    `${contact.name} ${contact.phone}`.toLowerCase().includes(memberQuery.toLowerCase()),
   );
+  const availableContacts = data.contacts
+    .filter((contact: any) => list && !contact.groupIds.includes(list.id))
+    .filter((contact: any) => `${contact.name} ${contact.phone}`.toLowerCase().includes(pickerQuery.toLowerCase()))
+    .sort((a: any, b: any) => a.name.localeCompare(b.name));
   const rename = async () => {
     if (!list || !name.trim()) return;
-    await window.api.saveGroup({
-      id: list.id,
-      name: name.trim(),
-      createdAt: list.createdAt,
-    });
+    await window.api.saveGroup({ id: list.id, name: name.trim(), createdAt: list.createdAt });
     setRenaming(false);
     refresh();
     notify(`List renamed to “${name.trim()}”.`);
+  };
+  const createList = async () => {
+    if (!newListName.trim()) return;
+    try {
+      const created = await window.api.saveGroup({ name: newListName.trim() });
+      setSelected(created.id);
+      setNewListName("");
+      setCreateOpen(false);
+      refresh();
+      notify(`List “${created.name}” created successfully.`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "List could not be created.", true);
+    }
+  };
+  const openPicker = () => {
+    setPickerQuery("");
+    setPickedContactIds([]);
+    setPickerOpen(true);
+  };
+  const addPickedContacts = async () => {
+    if (!list || !pickedContactIds.length) return;
+    await window.api.assignGroup(pickedContactIds, list.id);
+    setPickerOpen(false);
+    setPickedContactIds([]);
+    refresh();
+    notify(`${pickedContactIds.length} contact${pickedContactIds.length === 1 ? "" : "s"} added to “${list.name}” successfully.`);
   };
   const removeList = async () => {
     if (!list) return;
@@ -607,114 +566,60 @@ function Lists({ data, refresh, notify }: any) {
   return <>
     <section className="grid two">
       <div className="card">
-        <h2>Your lists</h2>
-        {data.groups.length ? (
-          data.groups.map((g: any) => (
-            <button
-              className={
-                selected === g.id ? "listButton selectedList" : "listButton"
-              }
-              key={g.id}
-              onClick={() => {
-                setSelected(g.id);
-                setRenaming(false);
-                setMemberQuery("");
-              }}
-            >
-              {g.name}
-              <small>
-                {
-                  data.contacts.filter((c: any) => c.groupIds.includes(g.id))
-                    .length
-                }{" "}
-                contacts
-              </small>
-            </button>
-          ))
-        ) : (
-          <p className="muted">No lists yet. Create one in Contacts.</p>
-        )}
+        <div className="listHeader">
+          <h2>Your lists</h2>
+          <button className="primary" onClick={() => setCreateOpen(true)}>New list</button>
+        </div>
+        {data.groups.length ? data.groups.map((group: any) => (
+          <button className={selected === group.id ? "listButton selectedList" : "listButton"} key={group.id} onClick={() => { setSelected(group.id); setRenaming(false); setMemberQuery(""); }}>
+            {group.name}
+            <small>{data.contacts.filter((contact: any) => contact.groupIds.includes(group.id)).length} contacts</small>
+          </button>
+        )) : <p className="muted">No lists yet. Create your first list here.</p>}
       </div>
       <div className="card">
         <div className="listHeader">
           <h2>{list ? list.name : "Choose a list"}</h2>
-          {list && (
-            <span>
-              <button
-                onClick={() => {
-                  setName(list.name);
-                  setRenaming(true);
-                }}
-              >
-                Rename
-              </button>{" "}
-              <button className="danger" onClick={() => setConfirmingDelete(true)}>
-                Delete list
-              </button>
-            </span>
-          )}
+          {list && <span>
+            <button onClick={openPicker}>Add contacts</button>{" "}
+            <button onClick={() => { setName(list.name); setRenaming(true); }}>Rename</button>{" "}
+            <button className="danger" onClick={() => setConfirmingDelete(true)}>Delete list</button>
+          </span>}
         </div>
-        {list && renaming && (
-          <div className="inline">
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && rename()}
-            />
-            <button className="primary" onClick={rename}>
-              Save name
-            </button>
-            <button onClick={() => setRenaming(false)}>Cancel</button>
-          </div>
-        )}
-        {list ? (
-          <>
-            <p className="muted">
-              If you remove a contact, it is removed from the list only, not the contacts.
-            </p>
-            {members.length ? <>
-              <input
-                className="memberSearch"
-                placeholder="Search contacts in this list…"
-                value={memberQuery}
-                onChange={(event) => setMemberQuery(event.target.value)}
-              />
-              {visibleMembers.length ? (
-              <div className="memberList">
-                {visibleMembers.map((c: any) => (
-                  <div key={c.id}>
-                    <span>
-                      <b>{c.name}</b>
-                      <small>+{c.phone}</small>
-                    </span>
-                    <button
-                      className="danger"
-                      onClick={async () => {
-                        await window.api.removeGroup(c.id, list.id);
-                        refresh();
-                        notify(`${c.name} removed from “${list.name}”.`);
-                      }}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="muted">No contacts match your search.</p>
-            )}
-            </> : (
-              <p className="muted">This list has no contacts.</p>
-            )}
-          </>
-        ) : (
-          <p className="muted">
-            Select a list on the left to view and manage its contacts.
-          </p>
-        )}
+        {list && renaming && <div className="inline">
+          <input autoFocus value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && rename()} />
+          <button className="primary" onClick={rename}>Save name</button>
+          <button onClick={() => setRenaming(false)}>Cancel</button>
+        </div>}
+        {list ? <>
+          <p className="muted">Add existing contacts to this list, or remove them from this list without deleting them from Contacts.</p>
+          {members.length ? <>
+            <input className="memberSearch" placeholder="Search contacts in this list…" value={memberQuery} onChange={(event) => setMemberQuery(event.target.value)} />
+            {visibleMembers.length ? <div className="memberList">
+              {visibleMembers.map((contact: any) => <div key={contact.id}>
+                <span><b>{contact.name}</b><small>+{contact.phone}</small></span>
+                <button className="danger" onClick={async () => { await window.api.removeGroup(contact.id, list.id); refresh(); notify(`${contact.name} removed from “${list.name}”.`); }}>Remove</button>
+              </div>)}
+            </div> : <p className="muted">No contacts match your search.</p>}
+          </> : <p className="muted">This list has no contacts yet. Use Add contacts above to get started.</p>}
+        </> : <p className="muted">Select a list on the left to view and manage its contacts.</p>}
       </div>
     </section>
+    {createOpen && <div className="modal"><div className="dialog compactDialog">
+      <h2>Create a list</h2>
+      <p className="muted">Give this list a clear name so it is easy to find when composing a broadcast.</p>
+      <input autoFocus placeholder="List name" value={newListName} onChange={(event) => setNewListName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && createList()} />
+      <div className="actions"><button onClick={() => { setCreateOpen(false); setNewListName(""); }}>Cancel</button><button className="primary" disabled={!newListName.trim()} onClick={createList}>Create list</button></div>
+    </div></div>}
+    {pickerOpen && list && <div className="modal"><div className="dialog contactPicker">
+      <div className="listHeader"><div><h2>Add contacts to {list.name}</h2><p className="muted">Search your contacts, select one or more, then save.</p></div><button onClick={() => setPickerOpen(false)}>Cancel</button></div>
+      <input autoFocus placeholder="Search contacts…" value={pickerQuery} onChange={(event) => setPickerQuery(event.target.value)} />
+      <div className="pickerRows contactPickerRows">
+        {availableContacts.map((contact: any) => <label key={contact.id}><input type="checkbox" checked={pickedContactIds.includes(contact.id)} onChange={() => setPickedContactIds((current) => current.includes(contact.id) ? current.filter((id) => id !== contact.id) : [...current, contact.id])} /><b>{contact.name}</b><small>+{contact.phone}</small></label>)}
+        {!availableContacts.length && <p className="muted">No contacts are available to add.</p>}
+      </div>
+      <div className="actions"><button onClick={() => setPickerOpen(false)}>Cancel</button><button className="primary" disabled={!pickedContactIds.length} onClick={addPickedContacts}>Save {pickedContactIds.length ? `${pickedContactIds.length} contact${pickedContactIds.length === 1 ? "" : "s"}` : "selection"}</button></div>
+    </div></div>}
     {confirmingDelete && list && <ConfirmDialog title="Delete list?" message={`Delete “${list.name}”? Its contacts will remain in Contacts.`} confirmLabel="Delete list" danger onConfirm={removeList} onCancel={() => setConfirmingDelete(false)} />}
   </>;
 }
