@@ -5,10 +5,19 @@ import type { Campaign, Contact, Settings } from './types'
 import { WhatsAppService } from './whatsapp'
 export type SendTarget = Contact | { id: string; name: string; chatId: string }
 
-export type JobState = { running: boolean; paused: boolean; campaign?: Campaign; current?: string; countdown?: number }
+export type JobState = { running: boolean; paused: boolean; campaign?: Campaign; current?: string; countdown?: number; etaSeconds?: number }
 export class SendQueue extends EventEmitter {
-  state: JobState = { running: false, paused: false }; private stopped = false; private resume?: () => void
-  private publish() { this.emit('progress', this.state) }
+  state: JobState = { running: false, paused: false }; private stopped = false; private resume?: () => void; private averageDelaySeconds = 0
+  private publish() {
+    const campaign = this.state.campaign
+    if (this.state.running && campaign) {
+      const remaining = Math.max(0, campaign.total - campaign.sent - campaign.failed)
+      const nextDelay = this.state.countdown || 0
+      const laterDelays = Math.max(0, remaining - (this.state.countdown ? 1 : 1)) * this.averageDelaySeconds
+      this.state.etaSeconds = Math.max(0, Math.round(nextDelay + laterDelays))
+    }
+    this.emit('progress', this.state)
+  }
   pause() { if (this.state.running) { this.state.paused = true; this.publish() } }
   resumeJob() { this.state.paused = false; this.resume?.(); this.resume = undefined; this.publish() }
   stop() { this.stopped = true; this.resumeJob() }
@@ -16,11 +25,11 @@ export class SendQueue extends EventEmitter {
   async start(contacts: SendTarget[], message: string, groups: string[], settings: Settings, wa: WhatsAppService, mediaPaths: string[] = []) {
     if (this.state.running) throw new Error('A process is already running')
     if (wa.status.state !== 'ready') throw new Error('Connect WhatsApp before sending.')
-    this.stopped = false; const campaign: Campaign = { id: randomUUID(), startedAt: new Date().toISOString(), messagePreview: message.slice(0, 140), hasMedia: Boolean(mediaPaths.length), mediaName: mediaPaths.map(path => path.split(/[\\/]/).pop()).join(', '), targetGroupNames: groups, total: contacts.length, sent: 0, failed: 0, status: 'running' }
+    this.stopped = false; this.averageDelaySeconds = Math.max(0, (settings.minDelaySec + settings.maxDelaySec) / 2); const campaign: Campaign = { id: randomUUID(), startedAt: new Date().toISOString(), messagePreview: message.slice(0, 140), hasMedia: Boolean(mediaPaths.length), mediaName: mediaPaths.map(path => path.split(/[\\/]/).pop()).join(', '), targetGroupNames: groups, total: contacts.length, sent: 0, failed: 0, status: 'running' }
     this.state = { running: true, paused: false, campaign }; this.publish()
     for (let i = 0; i < contacts.length && !this.stopped; i++) {
       await this.wait(); if (this.stopped) break
-      const contact = contacts[i]; this.state.current = contact.name; this.publish()
+      const contact = contacts[i]; this.state.current = contact.name; this.state.countdown = undefined; this.publish()
       let status: 'sent' | 'failed' = 'sent', error: string | undefined
       try { if ('chatId' in contact) await wa.sendGroup(contact.chatId, message, mediaPaths); else await wa.send(contact.phone, message, mediaPaths) } catch (e) { status = 'failed'; error = e instanceof Error ? e.message : String(e) }
       if (status === 'sent') campaign.sent++; else campaign.failed++

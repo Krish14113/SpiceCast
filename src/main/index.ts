@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, powerSaveBlocker, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -9,7 +9,7 @@ import { WhatsAppService } from './whatsapp'
 import { SendQueue } from './queue'
 import type { Contact, Group, Settings } from './types'
 
-let win: BrowserWindow | undefined
+let win: BrowserWindow | undefined, sleepBlockerId: number | undefined
 const wa = new WhatsAppService(), queue = new SendQueue()
 const send = (channel: string, value: unknown) => win?.webContents.send(channel, value)
 let updateStatus: { state: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'unavailable' | 'error'; message: string; version?: string; percent?: number } = { state: 'idle', message: 'Check GitHub Releases for a newer SpiceCast version.' }
@@ -78,4 +78,4 @@ function registerIpc() {
   ipcMain.handle('dialog:openMedia', async () => { const result = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'], filters: [{ name: 'Images, videos, and PDF files', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'mov', 'avi', 'mkv', 'pdf'] }] }); return result.canceled ? [] : result.filePaths })
   ipcMain.handle('data:reveal', () => shell.openPath(app.getPath('userData'))); ipcMain.handle('data:reset', resetData)
 }
-app.whenReady().then(async () => { await loadData(); registerIpc(); createWindow(); app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow() }) }); app.on('before-quit', () => { void wa.disconnect() }); app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+app.whenReady().then(async () => { sleepBlockerId = powerSaveBlocker.start('prevent-app-suspension'); await loadData(); registerIpc(); createWindow(); app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow() }) }); app.on('before-quit', () => { if (sleepBlockerId !== undefined && powerSaveBlocker.isStarted(sleepBlockerId)) powerSaveBlocker.stop(sleepBlockerId); void wa.disconnect() }); app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

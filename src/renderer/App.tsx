@@ -607,7 +607,7 @@ function Lists({ data, refresh, notify }: any) {
     </section>
     {createOpen && <div className="modal"><div className="dialog compactDialog">
       <h2>Create a list</h2>
-      <p className="muted">Give this list a clear name so it is easy to find when composing a broadcast.</p>
+      <p className="muted">Give this list a name to proceed adding contacts.</p>
       <input autoFocus placeholder="List name" value={newListName} onChange={(event) => setNewListName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && createList()} />
       <div className="actions"><button onClick={() => { setCreateOpen(false); setNewListName(""); }}>Cancel</button><button className="primary" disabled={!newListName.trim()} onClick={createList}>Create list</button></div>
     </div></div>}
@@ -918,6 +918,8 @@ function Compose({ data, job, notify }: any) {
 function Progress({ job }: any) {
   const c = job.campaign,
     done = (c?.sent || 0) + (c?.failed || 0);
+  const eta = Math.max(0, Math.round(job.etaSeconds || 0));
+  const etaLabel = eta >= 60 ? `${Math.floor(eta / 60)}m ${eta % 60}s` : `${eta}s`;
   return (
     <div className="progress">
       <h2>Live progress</h2>
@@ -935,6 +937,7 @@ function Progress({ job }: any) {
             ? `Next message in ${job.countdown}s`
             : `Sending to ${job.current || "…"}`}
       </p>
+      <p className="muted">Estimated time remaining: about {etaLabel}</p>
       <button
         onClick={() => (job.paused ? window.api.resume() : window.api.pause())}
       >
