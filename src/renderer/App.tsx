@@ -13,6 +13,14 @@ const nav: [Tab, string][] = [
 ];
 const fmt = (s?: string) => (s ? new Date(s).toLocaleString() : "—");
 const fileName = (path: string) => path.split(/[\\/]/).pop() || path;
+const runtimeDrafts = new Map<string, unknown>();
+const sortLists = (groups: any[]) =>
+  [...groups].sort(
+    (a, b) =>
+      (a.sortOrder ?? Number.MAX_SAFE_INTEGER) -
+        (b.sortOrder ?? Number.MAX_SAFE_INTEGER) ||
+      a.name.localeCompare(b.name),
+  );
 function useDraftState<T>(key: string, initialValue: T) {
   const [value, setValue] = useState<T>(() => {
     try {
@@ -24,6 +32,15 @@ function useDraftState<T>(key: string, initialValue: T) {
   });
   useEffect(() => {
     localStorage.setItem(key, JSON.stringify(value));
+  }, [key, value]);
+  return [value, setValue] as const;
+}
+function useRuntimeDraftState<T>(key: string, initialValue: T) {
+  const [value, setValue] = useState<T>(() =>
+    runtimeDrafts.has(key) ? (runtimeDrafts.get(key) as T) : initialValue,
+  );
+  useEffect(() => {
+    runtimeDrafts.set(key, value);
   }, [key, value]);
   return [value, setValue] as const;
 }
@@ -45,10 +62,17 @@ export function App() {
     [wa, setWa] = useState<any>({ state: "idle" }),
     [qr, setQr] = useState(""),
     [job, setJob] = useState<any>({ running: false }),
+    [accountId, setAccountId] = useDraftState("spicecast.selected-account", "primary"),
+    [accountDialogOpen, setAccountDialogOpen] = useState(false),
+    [accountName, setAccountName] = useState(""),
+    [renamingAccountId, setRenamingAccountId] = useState(""),
+    [renamedAccountName, setRenamedAccountName] = useState(""),
+    [deletingAccount, setDeletingAccount] = useState<any>(null),
     [toast, setToast] = useState<{ text: string; error?: boolean } | null>(
       null,
     );
   const jobRef = useRef(job),
+    accountIdRef = useRef(accountId),
     refresh = () => window.api.getData().then(setData);
   const notify = (text: string, error = false) => {
     setToast({ text, error });
@@ -56,11 +80,13 @@ export function App() {
   };
   useEffect(() => {
     refresh();
-    window.api.waStatus().then(setWa);
-    const a = window.api.on("wa:status", setWa),
-      b = window.api.on("wa:qr", async (value: string) =>
-        setQr(await QRCode.toDataURL(value)),
-      ),
+    const a = window.api.on("wa:status", (value: any) => {
+        if (value.accountId === accountIdRef.current) setWa(value.status);
+      }),
+      b = window.api.on("wa:qr", async (value: any) => {
+        if (value.accountId === accountIdRef.current)
+          setQr(await QRCode.toDataURL(value.qr));
+      }),
       c = window.api.on("send:progress", (value: any) => {
         if (jobRef.current.running && !value.running && value.campaign)
           notify(
@@ -76,6 +102,15 @@ export function App() {
       c();
     };
   }, []);
+  useEffect(() => {
+    accountIdRef.current = accountId;
+    setQr("");
+    window.api.waStatus(accountId).then(setWa);
+  }, [accountId]);
+  useEffect(() => {
+    if (data?.accounts?.length && !data.accounts.some((account: any) => account.id === accountId))
+      setAccountId(data.accounts[0].id);
+  }, [data, accountId, setAccountId]);
   useEffect(() => {
     const reclaimTextInputFocus = (event: PointerEvent) => {
       const target = event.target;
@@ -95,6 +130,46 @@ export function App() {
       document.removeEventListener("pointerdown", reclaimTextInputFocus, true);
   }, []);
   if (!data) return <main className="loading">Opening workspace…</main>;
+  const accounts = data.accounts || [{ id: "primary", name: "Primary" }];
+  const account = accounts.find((item: any) => item.id === accountId) || accounts[0];
+  const addAccount = async () => {
+    try {
+      const created = await window.api.saveAccount({ name: accountName });
+      setAccountName("");
+      setAccountDialogOpen(false);
+      setAccountId(created.id);
+      refresh();
+      notify(`Account “${created.name}” added. Connect it by scanning its QR code.`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Account could not be added.", true);
+    }
+  };
+  const renameAccount = async () => {
+    if (!renamingAccountId) return;
+    try {
+      const renamed = await window.api.renameAccount(renamingAccountId, renamedAccountName);
+      setRenamingAccountId("");
+      setRenamedAccountName("");
+      refresh();
+      notify(`Account renamed to “${renamed.name}”.`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Account could not be renamed.", true);
+    }
+  };
+  const deleteAccount = async () => {
+    if (!deletingAccount) return;
+    try {
+      const nextAccount = accounts.find((item: any) => item.id !== deletingAccount.id);
+      const deleted = await window.api.deleteAccount(deletingAccount.id);
+      if (account.id === deletingAccount.id && nextAccount) setAccountId(nextAccount.id);
+      setDeletingAccount(null);
+      refresh();
+      notify(`Account “${deleted}” deleted and unlinked.`);
+    } catch (error) {
+      setDeletingAccount(null);
+      notify(error instanceof Error ? error.message : "Account could not be deleted.", true);
+    }
+  };
   return (
     <div className="app">
       <aside>
@@ -129,7 +204,7 @@ export function App() {
         ))}
         <div className="sideStatus">
           <i className={wa.state === "ready" ? "good" : ""} />
-          {wa.state === "ready" ? "Connected" : "Not connected"}
+          {wa.state === "ready" ? `${account.name} connected` : `${account.name} not connected`}
         </div>
       </aside>
       <main>
@@ -137,21 +212,30 @@ export function App() {
           <div>
             <h1>{nav.find((x) => x[0] === tab)?.[1]}</h1>
           </div>
-          {job.running && (
-            <div className="live">
-              ● Sending · {job.campaign?.sent + job.campaign?.failed}/
-              {job.campaign?.total}
-            </div>
-          )}
+          <div className="headerControls">
+            <label className="accountSelect">
+              <span>Sending account</span>
+              <select value={account.id} onChange={(event) => setAccountId(event.target.value)} disabled={job.running}>
+                {accounts.map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </label>
+            <button onClick={() => setAccountDialogOpen(true)} disabled={job.running}>Manage accounts</button>
+            {job.running && (
+              <div className="live">
+                ● Sending · {job.campaign?.sent + job.campaign?.failed}/
+                {job.campaign?.total}
+              </div>
+            )}
+          </div>
         </header>
-        {tab === "connect" && <Connect wa={wa} qr={qr} notify={notify} />}{" "}
+        {tab === "connect" && <Connect account={account} wa={wa} qr={qr} notify={notify} />}{" "}
         {tab === "contacts" && (
           <Contacts data={data} refresh={refresh} notify={notify} />
         )}{" "}
         {tab === "lists" && (
           <Lists data={data} refresh={refresh} notify={notify} />
         )}{" "}
-        {tab === "compose" && <Compose data={data} job={job} notify={notify} />}{" "}
+        {tab === "compose" && <Compose key={account.id} account={account} data={data} job={job} notify={notify} />}{" "}
         {tab === "history" && <History />}{" "}
         {tab === "settings" && (
           <Settings data={data} refresh={refresh} notify={notify} />
@@ -162,10 +246,29 @@ export function App() {
           {toast.error ? "!" : "✓"} {toast.text}
         </div>
       )}
+      {accountDialogOpen && (
+        <div className="modal">
+          <div className="dialog accountDialog">
+            <h2>Manage sending accounts</h2>
+            <p className="muted">Each account has its own WhatsApp login. Contacts, Lists, settings, and history stay shared.</p>
+            <div className="accountRows">
+              {accounts.map((item: any) => <div className="accountRow" key={item.id}>
+                {renamingAccountId === item.id ? <input autoFocus value={renamedAccountName} onChange={(event) => setRenamedAccountName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && renameAccount()} /> : <span><b>{item.name}</b>{item.id === account.id && <small>Selected</small>}</span>}
+                <div>{renamingAccountId === item.id ? <><button onClick={() => { setRenamingAccountId(""); setRenamedAccountName(""); }}>Cancel</button><button className="primary" disabled={!renamedAccountName.trim()} onClick={renameAccount}>Save</button></> : <><button onClick={() => { setRenamingAccountId(item.id); setRenamedAccountName(item.name); }}>Rename</button><button className="danger" disabled={accounts.length <= 1} onClick={() => setDeletingAccount(item)}>Delete</button></>}</div>
+              </div>)}
+            </div>
+            <h3>Add another account</h3>
+            <p className="muted">Give it a label, then connect it by scanning its QR code.</p>
+            <input placeholder="Label" value={accountName} onChange={(event) => setAccountName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && addAccount()} />
+            <div className="actions"><button onClick={() => { setAccountDialogOpen(false); setAccountName(""); setRenamingAccountId(""); }}>Close</button><button className="primary" disabled={!accountName.trim()} onClick={addAccount}>Add account</button></div>
+          </div>
+        </div>
+      )}
+      {deletingAccount && <ConfirmDialog title="Delete sending account?" message={`Delete “${deletingAccount.name}” and remove its saved WhatsApp login from the app? Shared contacts, Lists, settings, and history will not be changed.`} confirmLabel="Delete account" danger onConfirm={deleteAccount} onCancel={() => setDeletingAccount(null)} />}
     </div>
   );
 }
-function Connect({ wa, qr, notify }: any) {
+function Connect({ account, wa, qr, notify }: any) {
   return (
     <section className="grid two">
       <div className="card connect">
@@ -176,6 +279,7 @@ function Connect({ wa, qr, notify }: any) {
           {wa.message ||
             "Connect by scanning a QR code from WhatsApp on your phone."}
         </p>
+        <p className="accountNotice">Account: <b>{account.name}</b></p>
         {wa.state === "qr" && qr && <img className="qr" src={qr} />}{" "}
         {wa.state === "ready" ? (
           <>
@@ -189,8 +293,8 @@ function Connect({ wa, qr, notify }: any) {
             <button
               className="danger"
               onClick={async () => {
-                await window.api.logout();
-                notify("WhatsApp account unlinked.");
+                await window.api.logout(account.id);
+                notify(`${account.name} unlinked from WhatsApp.`);
               }}
             >
               Unlink WhatsApp
@@ -199,14 +303,14 @@ function Connect({ wa, qr, notify }: any) {
         ) : (
           <button
             className="primary"
-            onClick={() => window.api.connect()}
+            onClick={() => window.api.connect(account.id)}
             disabled={wa.state === "launching" || wa.state === "authenticated"}
           >
             {wa.state === "qr"
               ? "Waiting for scan…"
               : wa.state === "launching"
                 ? "Launching…"
-                : "Connect WhatsApp"}
+                : `Connect ${account.name}`}
           </button>
         )}
       </div>
@@ -343,7 +447,7 @@ function Contacts({ data, refresh, notify }: any) {
           />
           <select value={listId} onChange={(e) => setListId(e.target.value)}>
             <option value="">No list</option>
-            {data.groups.map((group: any) => (
+            {sortLists(data.groups).map((group: any) => (
               <option key={group.id} value={group.id}>
                 {group.name}
               </option>
@@ -371,6 +475,7 @@ function Contacts({ data, refresh, notify }: any) {
           />
           <span>Name</span>
           <span>Phone</span>
+          <span>Lists</span>
           <span>Action</span>
         </div>
         {rows.map((c: any) => (
@@ -388,6 +493,13 @@ function Contacts({ data, refresh, notify }: any) {
             />
             <b>{c.name}</b>
             <span>+{c.phone}</span>
+            <span className="contactLists">
+              {sortLists(
+                data.groups.filter((group: any) => c.groupIds.includes(group.id)),
+              )
+                .map((group: any) => group.name)
+                .join(", ") || "—"}
+            </span>
             <button
               className="editButton"
               title={`Edit ${c.name}`}
@@ -512,15 +624,19 @@ function Lists({ data, refresh, notify }: any) {
     [pickerQuery, setPickerQuery] = useState(""),
     [pickedContactIds, setPickedContactIds] = useState<string[]>([]),
     [confirmingDelete, setConfirmingDelete] = useState(false);
+  const orderedLists = sortLists(data.groups);
   const list = data.groups.find((g: any) => g.id === selected);
   const members = data.contacts.filter((c: any) => c.groupIds.includes(selected));
   const visibleMembers = members.filter((contact: any) =>
     `${contact.name} ${contact.phone}`.toLowerCase().includes(memberQuery.toLowerCase()),
   );
-  const availableContacts = data.contacts
-    .filter((contact: any) => list && !contact.groupIds.includes(list.id))
+  const pickerContacts = data.contacts
     .filter((contact: any) => `${contact.name} ${contact.phone}`.toLowerCase().includes(pickerQuery.toLowerCase()))
-    .sort((a: any, b: any) => a.name.localeCompare(b.name));
+    .sort((a: any, b: any) => {
+      const aIsMember = Boolean(list && a.groupIds.includes(list.id));
+      const bIsMember = Boolean(list && b.groupIds.includes(list.id));
+      return Number(bIsMember) - Number(aIsMember) || a.name.localeCompare(b.name);
+    });
   const rename = async () => {
     if (!list || !name.trim()) return;
     await window.api.saveGroup({ id: list.id, name: name.trim(), createdAt: list.createdAt });
@@ -543,16 +659,30 @@ function Lists({ data, refresh, notify }: any) {
   };
   const openPicker = () => {
     setPickerQuery("");
-    setPickedContactIds([]);
+    setPickedContactIds(members.map((contact: any) => contact.id));
     setPickerOpen(true);
   };
   const addPickedContacts = async () => {
-    if (!list || !pickedContactIds.length) return;
-    await window.api.assignGroup(pickedContactIds, list.id);
+    if (!list) return;
+    const newContactIds = pickedContactIds.filter((id) => !members.some((contact: any) => contact.id === id));
+    if (!newContactIds.length) {
+      setPickerOpen(false);
+      return;
+    }
+    await window.api.assignGroup(newContactIds, list.id);
     setPickerOpen(false);
     setPickedContactIds([]);
     refresh();
-    notify(`${pickedContactIds.length} contact${pickedContactIds.length === 1 ? "" : "s"} added to “${list.name}” successfully.`);
+    notify(`${newContactIds.length} contact${newContactIds.length === 1 ? "" : "s"} added to “${list.name}” successfully.`);
+  };
+  const moveList = async (groupId: string, direction: -1 | 1) => {
+    const from = orderedLists.findIndex((group: any) => group.id === groupId);
+    const to = from + direction;
+    if (from < 0 || to < 0 || to >= orderedLists.length) return;
+    const reordered = [...orderedLists];
+    [reordered[from], reordered[to]] = [reordered[to], reordered[from]];
+    await window.api.reorderGroups(reordered.map((group: any) => group.id));
+    refresh();
   };
   const removeList = async () => {
     if (!list) return;
@@ -570,11 +700,17 @@ function Lists({ data, refresh, notify }: any) {
           <h2>Your lists</h2>
           <button className="primary" onClick={() => setCreateOpen(true)}>New list</button>
         </div>
-        {data.groups.length ? data.groups.map((group: any) => (
-          <button className={selected === group.id ? "listButton selectedList" : "listButton"} key={group.id} onClick={() => { setSelected(group.id); setRenaming(false); setMemberQuery(""); }}>
-            {group.name}
-            <small>{data.contacts.filter((contact: any) => contact.groupIds.includes(group.id)).length} contacts</small>
-          </button>
+        {orderedLists.length ? orderedLists.map((group: any, index: number) => (
+          <div className={selected === group.id ? "listButton selectedList" : "listButton"} key={group.id}>
+            <button className="listSelect" onClick={() => { setSelected(group.id); setRenaming(false); setMemberQuery(""); }}>
+              <b>{group.name}</b>
+              <small>{data.contacts.filter((contact: any) => contact.groupIds.includes(group.id)).length} contacts</small>
+            </button>
+            <div className="listOrder" aria-label={`Move ${group.name}`}>
+              <button title="Move up" aria-label={`Move ${group.name} up`} disabled={index === 0} onClick={() => moveList(group.id, -1)}>↑</button>
+              <button title="Move down" aria-label={`Move ${group.name} down`} disabled={index === orderedLists.length - 1} onClick={() => moveList(group.id, 1)}>↓</button>
+            </div>
+          </div>
         )) : <p className="muted">No lists yet. Create your first list here.</p>}
       </div>
       <div className="card">
@@ -612,31 +748,31 @@ function Lists({ data, refresh, notify }: any) {
       <div className="actions"><button onClick={() => { setCreateOpen(false); setNewListName(""); }}>Cancel</button><button className="primary" disabled={!newListName.trim()} onClick={createList}>Create list</button></div>
     </div></div>}
     {pickerOpen && list && <div className="modal"><div className="dialog contactPicker">
-      <div className="listHeader"><div><h2>Add contacts to {list.name}</h2><p className="muted">Search your contacts, select one or more, then save.</p></div><button onClick={() => setPickerOpen(false)}>Cancel</button></div>
+      <div className="listHeader"><div><h2>Add contacts to {list.name}</h2><p className="muted">Search your contacts, select one or more, then save.</p></div></div>
       <input autoFocus placeholder="Search contacts…" value={pickerQuery} onChange={(event) => setPickerQuery(event.target.value)} />
       <div className="pickerRows contactPickerRows">
-        {availableContacts.map((contact: any) => <label key={contact.id}><input type="checkbox" checked={pickedContactIds.includes(contact.id)} onChange={() => setPickedContactIds((current) => current.includes(contact.id) ? current.filter((id) => id !== contact.id) : [...current, contact.id])} /><b>{contact.name}</b><small>+{contact.phone}</small></label>)}
-        {!availableContacts.length && <p className="muted">No contacts are available to add.</p>}
+        {pickerContacts.map((contact: any) => { const isMember = contact.groupIds.includes(list.id); return <label className={isMember ? "existingMember" : ""} key={contact.id}><input type="checkbox" checked={pickedContactIds.includes(contact.id)} disabled={isMember} onChange={() => setPickedContactIds((current) => current.includes(contact.id) ? current.filter((id) => id !== contact.id) : [...current, contact.id])} /><b>{contact.name}</b>{isMember && <em>Added</em>}<small>+{contact.phone}</small></label>; })}
+        {!pickerContacts.length && <p className="muted">No contacts match your search.</p>}
       </div>
-      <div className="actions"><button onClick={() => setPickerOpen(false)}>Cancel</button><button className="primary" disabled={!pickedContactIds.length} onClick={addPickedContacts}>Save {pickedContactIds.length ? `${pickedContactIds.length} contact${pickedContactIds.length === 1 ? "" : "s"}` : "selection"}</button></div>
+      <div className="actions"><button onClick={() => setPickerOpen(false)}>Cancel</button><button className="primary" disabled={!pickedContactIds.some((id) => !members.some((contact: any) => contact.id === id))} onClick={addPickedContacts}>Save selection</button></div>
     </div></div>}
     {confirmingDelete && list && <ConfirmDialog title="Delete list?" message={`Delete “${list.name}”? Its contacts will remain in Contacts.`} confirmLabel="Delete list" danger onConfirm={removeList} onCancel={() => setConfirmingDelete(false)} />}
   </>;
 }
-function Compose({ data, job, notify }: any) {
-  const [lists, setLists] = useDraftState<string[]>(
+function Compose({ account, data, job, notify }: any) {
+  const [lists, setLists] = useRuntimeDraftState<string[]>(
     "spicecast.compose.lists",
     [],
   );
-  const [selectedWaGroups, setSelectedWaGroups] = useDraftState<string[]>(
-    "spicecast.compose.whatsapp-groups",
+  const [selectedWaGroups, setSelectedWaGroups] = useRuntimeDraftState<string[]>(
+    `spicecast.compose.whatsapp-groups.${account.id}`,
     [],
   );
-  const [message, setMessage] = useDraftState(
+  const [message, setMessage] = useRuntimeDraftState(
     "spicecast.compose.message",
     "",
   );
-  const [mediaPaths, setMediaPaths] = useDraftState<string[]>(
+  const [mediaPaths, setMediaPaths] = useRuntimeDraftState<string[]>(
     "spicecast.compose.media",
     [],
   );
@@ -654,8 +790,6 @@ function Compose({ data, job, notify }: any) {
     if (wasSending.current && job.campaign?.status === "completed") {
       setLists([]);
       setSelectedWaGroups([]);
-      setMessage("");
-      setMediaPaths([]);
       setNotice("");
       wasSending.current = false;
     }
@@ -704,7 +838,7 @@ function Compose({ data, job, notify }: any) {
   };
   const loadWaGroups = async () => {
     try {
-      const loaded = await window.api.waGroups();
+      const loaded = await window.api.waGroups(account.id);
       setWaGroups(loaded);
       setSearch("");
       setPicker(true);
@@ -726,6 +860,7 @@ function Compose({ data, job, notify }: any) {
     setConfirmingSend(false);
     try {
       await window.api.start(
+        account.id,
         recipients.map((c: any) => c.id),
         message,
         data.groups
@@ -758,7 +893,7 @@ function Compose({ data, job, notify }: any) {
               Select saved contacts from one or more lists.
             </p>
             <div className="checks">
-              {data.groups.map((g: any) => (
+              {sortLists(data.groups).map((g: any) => (
                 <label key={g.id}>
                   <input
                     type="checkbox"
@@ -789,7 +924,7 @@ function Compose({ data, job, notify }: any) {
             <div>
               <h3>WhatsApp groups</h3>
               <p>
-                Send directly to groups joined by this linked WhatsApp account.
+                Send directly to groups joined by {account.name}.
               </p>
             </div>
             <button className="primary" onClick={loadWaGroups}>
@@ -906,7 +1041,7 @@ function Compose({ data, job, notify }: any) {
       {confirmingSend && (
         <ConfirmDialog
           title="Send message?"
-          message={`Send this message to ${recipients.length} contact${recipients.length === 1 ? "" : "s"} and ${selectedWaGroups.length} WhatsApp group${selectedWaGroups.length === 1 ? "" : "s"}?`}
+          message={`Send this message from ${account.name} to ${recipients.length} contact${recipients.length === 1 ? "" : "s"} and ${selectedWaGroups.length} WhatsApp group${selectedWaGroups.length === 1 ? "" : "s"}?`}
           confirmLabel="Send message"
           onConfirm={start}
           onCancel={() => setConfirmingSend(false)}

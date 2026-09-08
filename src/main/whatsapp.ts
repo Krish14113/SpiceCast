@@ -7,13 +7,14 @@ import { resolveBrowser } from './browser'
 
 export class WhatsAppService extends EventEmitter {
   status: WaStatus = { state: 'idle' }; private client?: Client
+  constructor(private readonly accountId = 'primary') { super() }
   private set(status: WaStatus) { this.status = status; this.emit('status', status) }
   async connect(chromePath?: string) {
     if (this.client) return
     this.set({ state: 'launching', message: 'Opening WhatsApp Web…' })
     try {
       const executablePath = resolveBrowser(chromePath)
-      this.client = new Client({ authStrategy: new LocalAuth({ clientId: 'primary', dataPath: join(app.getPath('userData'), 'sessions') }), puppeteer: { headless: true, executablePath, args: ['--no-sandbox', '--disable-setuid-sandbox'] } })
+      this.client = new Client({ authStrategy: new LocalAuth({ clientId: this.accountId, dataPath: join(app.getPath('userData'), 'sessions') }), puppeteer: { headless: true, executablePath, args: ['--no-sandbox', '--disable-setuid-sandbox'] } })
       this.client.on('qr', qr => { this.set({ state: 'qr', message: 'Scan this QR code with WhatsApp' }); this.emit('qr', qr) })
       this.client.on('authenticated', () => this.set({ state: 'authenticated', message: 'Authenticated. Loading…' }))
       this.client.on('ready', () => { const info = this.client?.info; this.set({ state: 'ready', me: info ? { name: info.pushname || 'WhatsApp user', number: info.wid.user } : undefined }) })
