@@ -6,7 +6,7 @@ type Tab =
 const nav: [Tab, string][] = [
   ["connect", "Connect"],
   ["contacts", "Contacts"],
-  ["lists", "Lists"],
+  ["lists", "Broadcasts"],
   ["compose", "Compose"],
   ["history", "History"],
   ["settings", "Settings"],
@@ -250,7 +250,7 @@ export function App() {
         <div className="modal">
           <div className="dialog accountDialog">
             <h2>Manage sending accounts</h2>
-            <p className="muted">Each account has its own WhatsApp login. Contacts, Lists, settings, and history stay shared.</p>
+            <p className="muted">Each account has its own WhatsApp login. Contacts, Broadcasts, settings, and history stay shared.</p>
             <div className="accountRows">
               {accounts.map((item: any) => <div className="accountRow" key={item.id}>
                 {renamingAccountId === item.id ? <input autoFocus value={renamedAccountName} onChange={(event) => setRenamedAccountName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && renameAccount()} /> : <span><b>{item.name}</b>{item.id === account.id && <small>Selected</small>}</span>}
@@ -264,7 +264,7 @@ export function App() {
           </div>
         </div>
       )}
-      {deletingAccount && <ConfirmDialog title="Delete sending account?" message={`Delete “${deletingAccount.name}” and remove its saved WhatsApp login from the app? Shared contacts, Lists, settings, and history will not be changed.`} confirmLabel="Delete account" danger onConfirm={deleteAccount} onCancel={() => setDeletingAccount(null)} />}
+      {deletingAccount && <ConfirmDialog title="Delete sending account?" message={`Delete “${deletingAccount.name}” and remove its saved WhatsApp login from the app? Shared contacts, Broadcasts, settings, and history will not be changed.`} confirmLabel="Delete account" danger onConfirm={deleteAccount} onCancel={() => setDeletingAccount(null)} />}
     </div>
   );
 }
@@ -446,7 +446,7 @@ function Contacts({ data, refresh, notify }: any) {
             onChange={(e) => setPhone(e.target.value)}
           />
           <select value={listId} onChange={(e) => setListId(e.target.value)}>
-            <option value="">No list</option>
+            <option value="">No broadcast</option>
             {sortLists(data.groups).map((group: any) => (
               <option key={group.id} value={group.id}>
                 {group.name}
@@ -475,7 +475,7 @@ function Contacts({ data, refresh, notify }: any) {
           />
           <span>Name</span>
           <span>Phone</span>
-          <span>Lists</span>
+          <span>Broadcasts</span>
           <span>Action</span>
         </div>
         {rows.map((c: any) => (
@@ -642,7 +642,7 @@ function Lists({ data, refresh, notify }: any) {
     await window.api.saveGroup({ id: list.id, name: name.trim(), createdAt: list.createdAt });
     setRenaming(false);
     refresh();
-    notify(`List renamed to “${name.trim()}”.`);
+      notify(`Broadcast renamed to “${name.trim()}”.`);
   };
   const createList = async () => {
     if (!newListName.trim()) return;
@@ -652,9 +652,9 @@ function Lists({ data, refresh, notify }: any) {
       setNewListName("");
       setCreateOpen(false);
       refresh();
-      notify(`List “${created.name}” created successfully.`);
+      notify(`Broadcast “${created.name}” created successfully.`);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "List could not be created.", true);
+      notify(error instanceof Error ? error.message : "Broadcast could not be created.", true);
     }
   };
   const openPicker = () => {
@@ -691,14 +691,14 @@ function Lists({ data, refresh, notify }: any) {
     setRenaming(false);
     setConfirmingDelete(false);
     refresh();
-    notify(`List “${deleted}” deleted.`);
+    notify(`Broadcast “${deleted}” deleted.`);
   };
   return <>
     <section className="grid two">
       <div className="card">
         <div className="listHeader">
-          <h2>Your lists</h2>
-          <button className="primary" onClick={() => setCreateOpen(true)}>New list</button>
+          <h2>Your broadcasts</h2>
+          <button className="primary" onClick={() => setCreateOpen(true)}>New broadcast</button>
         </div>
         {orderedLists.length ? orderedLists.map((group: any, index: number) => (
           <div className={selected === group.id ? "listButton selectedList" : "listButton"} key={group.id}>
@@ -711,15 +711,15 @@ function Lists({ data, refresh, notify }: any) {
               <button title="Move down" aria-label={`Move ${group.name} down`} disabled={index === orderedLists.length - 1} onClick={() => moveList(group.id, 1)}>↓</button>
             </div>
           </div>
-        )) : <p className="muted">No lists yet. Create your first list here.</p>}
+        )) : <p className="muted">No broadcasts yet. Create your first broadcast here.</p>}
       </div>
       <div className="card">
         <div className="listHeader">
-          <h2>{list ? list.name : "Choose a list"}</h2>
+          <h2>{list ? list.name : "Choose a broadcast"}</h2>
           {list && <span>
             <button onClick={openPicker}>Add contacts</button>{" "}
             <button onClick={() => { setName(list.name); setRenaming(true); }}>Rename</button>{" "}
-            <button className="danger" onClick={() => setConfirmingDelete(true)}>Delete list</button>
+            <button className="danger" onClick={() => setConfirmingDelete(true)}>Delete broadcast</button>
           </span>}
         </div>
         {list && renaming && <div className="inline">
@@ -728,24 +728,24 @@ function Lists({ data, refresh, notify }: any) {
           <button onClick={() => setRenaming(false)}>Cancel</button>
         </div>}
         {list ? <>
-          <p className="muted">Add existing contacts to this list, or remove them from this list without deleting them from Contacts.</p>
+          <p className="muted">Add existing contacts to this broadcast, or remove them without deleting them from Contacts.</p>
           {members.length ? <>
-            <input className="memberSearch" placeholder="Search contacts in this list…" value={memberQuery} onChange={(event) => setMemberQuery(event.target.value)} />
+            <input className="memberSearch" placeholder="Search contacts in this broadcast…" value={memberQuery} onChange={(event) => setMemberQuery(event.target.value)} />
             {visibleMembers.length ? <div className="memberList">
               {visibleMembers.map((contact: any) => <div key={contact.id}>
                 <span><b>{contact.name}</b><small>+{contact.phone}</small></span>
                 <button className="danger" onClick={async () => { await window.api.removeGroup(contact.id, list.id); refresh(); notify(`${contact.name} removed from “${list.name}”.`); }}>Remove</button>
               </div>)}
             </div> : <p className="muted">No contacts match your search.</p>}
-          </> : <p className="muted">This list has no contacts yet. Use Add contacts above to get started.</p>}
-        </> : <p className="muted">Select a list on the left to view and manage its contacts.</p>}
+          </> : <p className="muted">This broadcast has no contacts yet. Use Add contacts above to get started.</p>}
+        </> : <p className="muted">Select a broadcast on the left to view and manage its contacts.</p>}
       </div>
     </section>
     {createOpen && <div className="modal"><div className="dialog compactDialog">
-      <h2>Create a list</h2>
-      <p className="muted">Give this list a name to proceed adding contacts.</p>
-      <input autoFocus placeholder="List name" value={newListName} onChange={(event) => setNewListName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && createList()} />
-      <div className="actions"><button onClick={() => { setCreateOpen(false); setNewListName(""); }}>Cancel</button><button className="primary" disabled={!newListName.trim()} onClick={createList}>Create list</button></div>
+      <h2>Create a broadcast</h2>
+      <p className="muted">Give this broadcast a name to proceed adding contacts.</p>
+      <input autoFocus placeholder="Broadcast name" value={newListName} onChange={(event) => setNewListName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && createList()} />
+      <div className="actions"><button onClick={() => { setCreateOpen(false); setNewListName(""); }}>Cancel</button><button className="primary" disabled={!newListName.trim()} onClick={createList}>Create broadcast</button></div>
     </div></div>}
     {pickerOpen && list && <div className="modal"><div className="dialog contactPicker">
       <div className="listHeader"><div><h2>Add contacts to {list.name}</h2><p className="muted">Search your contacts, select one or more, then save.</p></div></div>
@@ -756,7 +756,7 @@ function Lists({ data, refresh, notify }: any) {
       </div>
       <div className="actions"><button onClick={() => setPickerOpen(false)}>Cancel</button><button className="primary" disabled={!pickedContactIds.some((id) => !members.some((contact: any) => contact.id === id))} onClick={addPickedContacts}>Save selection</button></div>
     </div></div>}
-    {confirmingDelete && list && <ConfirmDialog title="Delete list?" message={`Delete “${list.name}”? Its contacts will remain in Contacts.`} confirmLabel="Delete list" danger onConfirm={removeList} onCancel={() => setConfirmingDelete(false)} />}
+    {confirmingDelete && list && <ConfirmDialog title="Delete broadcast?" message={`Delete “${list.name}”? Its contacts will remain in Contacts.`} confirmLabel="Delete broadcast" danger onConfirm={removeList} onCancel={() => setConfirmingDelete(false)} />}
   </>;
 }
 function Compose({ account, data, job, notify }: any) {
@@ -852,7 +852,7 @@ function Compose({ account, data, job, notify }: any) {
   const requestStart = () => {
     if (!targets || (!message.trim() && !mediaPaths.length))
       return setNotice(
-        "Choose a list or WhatsApp group, and add a message or media file.",
+        "Choose a broadcast or WhatsApp group, and add a message or media file.",
       );
     setConfirmingSend(true);
   };
@@ -888,9 +888,9 @@ function Compose({ account, data, job, notify }: any) {
         </div>
         <div className="audienceBlocks">
           <div>
-            <h3>Contact lists</h3>
+            <h3>Contact broadcasts</h3>
             <p className="muted">
-              Select saved contacts from one or more lists.
+              Select saved contacts from one or more broadcasts.
             </p>
             <div className="checks">
               {sortLists(data.groups).map((g: any) => (
@@ -1087,49 +1087,47 @@ function Progress({ job }: any) {
 function History() {
   const [campaigns, setCampaigns] = useState<any[]>([]),
     [messages, setMessages] = useState<any[]>([]),
-    [open, setOpen] = useState("");
+    [selectedCampaign, setSelectedCampaign] = useState<any>(null),
+    [showRecipients, setShowRecipients] = useState(false),
+    [loading, setLoading] = useState(false);
   useEffect(() => {
     window.api.campaigns().then(setCampaigns);
   }, []);
+  const openCampaign = async (campaign: any) => {
+    setSelectedCampaign(campaign);
+    setShowRecipients(false);
+    await refreshCampaign(campaign);
+  };
+  const refreshCampaign = async (campaign: any) => {
+    setLoading(true);
+    try { setMessages(await window.api.messages(campaign.id)); } finally { setLoading(false); }
+  };
   return (
     <section>
+      <div className="historyHeading">
+        <div><h2>All past messages</h2><p className="muted">Open a message to view its full content and recipient results.</p></div>
+      </div>
       {!campaigns.length && (
-        <div className="empty card">No completed messages yet.</div>
+        <div className="empty card">No past messages yet.</div>
       )}
       {campaigns.map((c) => (
-        <div
-          className="card campaign"
-          key={c.id}
-          onClick={async () => {
-            setOpen(c.id);
-            setMessages(await window.api.messages(c.id));
-          }}
-        >
-          <div>
-            <b>{fmt(c.startedAt)}</b>
-            <p>{c.messagePreview || "(Media only)"}</p>
-            <small>
-              {c.hasMedia && `Attachment: ${c.mediaName} · `}
-              {c.targetGroupNames.join(", ") || "Direct recipients"}
-            </small>
+        <button className="card historyCampaign" key={c.id} onClick={() => openCampaign(c)}>
+          <div className="historyCampaignTop">
+            <span className={c.status === "completed" ? "campaignStatus completed" : "campaignStatus stopped"}>{c.status === "completed" ? "Completed" : "Stopped"}</span>
+            <span>{new Date(c.startedAt).toLocaleDateString()} · {new Date(c.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
           </div>
-          <div className="counts">
-            <b>{c.sent} sent</b>
-            <span>{c.failed} failed</span>
-            <small>{c.status}</small>
-          </div>
-          {open === c.id && (
-            <div className="messageRows">
-              {messages.map((m) => (
-                <div key={`${m.contactId}-${m.at}`}>
-                  {m.status === "sent" ? "✓" : "×"} {m.name} · +{m.phone}{" "}
-                  {m.error && `— ${m.error}`}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+          <p className="historyPreview">{c.message || c.messagePreview || "(Media only message)"}</p>
+          <div className="historyMeta"><span><b>{c.total}</b> recipients</span><span><b>{c.sent + c.failed}</b> sent</span><span className="success"><b>{c.sent}</b> successful</span><span className="failure"><b>{c.failed}</b> failed</span></div>
+          <small>{c.targetGroupNames.join(", ") || "Direct recipients"}</small>
+        </button>
       ))}
+      {selectedCampaign && <div className="modal"><div className="dialog historyDialog">
+        <div className="listHeader"><div><h2>Message details</h2><p className="muted">{fmt(selectedCampaign.startedAt)} · {selectedCampaign.status === "completed" ? "Completed" : "Stopped"}</p></div><button onClick={() => { setSelectedCampaign(null); setMessages([]); }}>Close</button></div>
+        <div className="historyMessage"><b>Message</b><p>{selectedCampaign.message || selectedCampaign.messagePreview || "(Media only message)"}</p>{selectedCampaign.hasMedia && <small>Attachment: {selectedCampaign.mediaName}</small>}</div>
+        <div className="performanceGrid"><div><span>Recipients</span><b>{selectedCampaign.total}</b></div><div><span>Successful</span><b className="success">{selectedCampaign.sent}</b></div><div><span>Failed</span><b className="failure">{selectedCampaign.failed}</b></div></div><br/>
+        <button className="primary recipientButton" onClick={() => setShowRecipients((current) => !current)} disabled={loading}>{loading ? "Loading recipients…" : showRecipients ? `Hide recipients (${messages.length})` : `View recipients (${selectedCampaign.total})`}</button>
+        {showRecipients && <div className="recipientResults">{messages.map((message) => <div className={message.status === "sent" ? "recipientSuccess" : "recipientFailure"} key={`${message.contactId}-${message.at}`}><span><b>{message.name}</b><small>+{message.phone}</small></span><span>{message.status === "sent" ? "Sent" : "Failed"}{message.error && <small>{message.error}</small>}</span></div>)}{!messages.length && !loading && <p className="muted">No recipient records are available for this older message.</p>}</div>}
+      </div></div>}
     </section>
   );
 }
@@ -1209,7 +1207,7 @@ function Settings({ data, refresh, notify }: any) {
         <hr />
         <h2>Danger zone</h2>
         <p className="muted">
-          Clearing data removes local contacts, lists, and settings. Send
+          Clearing data removes local contacts, broadcasts, and settings. Send
           history is retained separately.
         </p>
         <button
