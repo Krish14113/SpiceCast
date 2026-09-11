@@ -1088,20 +1088,33 @@ function History() {
   const [campaigns, setCampaigns] = useState<any[]>([]),
     [messages, setMessages] = useState<any[]>([]),
     [selectedCampaign, setSelectedCampaign] = useState<any>(null),
-    [showRecipients, setShowRecipients] = useState(false),
+    [recipientFilter, setRecipientFilter] = useState<"all" | "sent" | "failed" | null>(null),
     [loading, setLoading] = useState(false);
   useEffect(() => {
     window.api.campaigns().then(setCampaigns);
   }, []);
   const openCampaign = async (campaign: any) => {
     setSelectedCampaign(campaign);
-    setShowRecipients(false);
+    setRecipientFilter(null);
     await refreshCampaign(campaign);
   };
   const refreshCampaign = async (campaign: any) => {
     setLoading(true);
     try { setMessages(await window.api.messages(campaign.id)); } finally { setLoading(false); }
   };
+  const filteredRecipients = messages.filter((message) =>
+    recipientFilter === "all" || recipientFilter === null
+      ? true
+      : recipientFilter === "sent"
+        ? message.status === "sent"
+        : message.status === "failed",
+  );
+  const recipientTitle =
+    recipientFilter === "sent"
+      ? "Successful recipients"
+      : recipientFilter === "failed"
+        ? "Failed recipients"
+        : "All recipients";
   return (
     <section>
       <div className="historyHeading">
@@ -1124,9 +1137,11 @@ function History() {
       {selectedCampaign && <div className="modal"><div className="dialog historyDialog">
         <div className="listHeader"><div><h2>Message details</h2><p className="muted">{fmt(selectedCampaign.startedAt)} · {selectedCampaign.status === "completed" ? "Completed" : "Stopped"}</p></div><button onClick={() => { setSelectedCampaign(null); setMessages([]); }}>Close</button></div>
         <div className="historyMessage"><b>Message</b><p>{selectedCampaign.message || selectedCampaign.messagePreview || "(Media only message)"}</p>{selectedCampaign.hasMedia && <small>Attachment: {selectedCampaign.mediaName}</small>}</div>
-        <div className="performanceGrid"><div><span>Recipients</span><b>{selectedCampaign.total}</b></div><div><span>Successful</span><b className="success">{selectedCampaign.sent}</b></div><div><span>Failed</span><b className="failure">{selectedCampaign.failed}</b></div></div><br/>
-        <button className="primary recipientButton" onClick={() => setShowRecipients((current) => !current)} disabled={loading}>{loading ? "Loading recipients…" : showRecipients ? `Hide recipients (${messages.length})` : `View recipients (${selectedCampaign.total})`}</button>
-        {showRecipients && <div className="recipientResults">{messages.map((message) => <div className={message.status === "sent" ? "recipientSuccess" : "recipientFailure"} key={`${message.contactId}-${message.at}`}><span><b>{message.name}</b><small>+{message.phone}</small></span><span>{message.status === "sent" ? "Sent" : "Failed"}{message.error && <small>{message.error}</small>}</span></div>)}{!messages.length && !loading && <p className="muted">No recipient records are available for this older message.</p>}</div>}
+        <div className="performanceGrid"><button onClick={() => setRecipientFilter("all")} disabled={loading}><span>Recipients</span><b>{selectedCampaign.total}</b><small>View all</small></button><button onClick={() => setRecipientFilter("sent")} disabled={loading}><span>Successful</span><b className="success">{selectedCampaign.sent}</b><small>View successful</small></button><button onClick={() => setRecipientFilter("failed")} disabled={loading}><span>Failed</span><b className="failure">{selectedCampaign.failed}</b><small>View failed</small></button></div>
+      </div></div>}
+      {selectedCampaign && recipientFilter && <div className="modal"><div className="dialog recipientsDialog">
+        <div className="listHeader"><div><h2>{recipientTitle}</h2><p className="muted">{filteredRecipients.length} recipient{filteredRecipients.length === 1 ? "" : "s"} in this message</p></div><button onClick={() => setRecipientFilter(null)}>Close</button></div>
+        <div className="recipientResults recipientResultsLarge">{filteredRecipients.map((message) => <div className={message.status === "sent" ? "recipientSuccess" : "recipientFailure"} key={`${message.contactId}-${message.at}`}><span><b>{message.name}</b><small>+{message.phone}</small></span><span>{message.status === "sent" ? "Sent" : "Failed"}{message.error && <small>{message.error}</small>}</span></div>)}{!filteredRecipients.length && !loading && <p className="muted">No recipient records are available for this message.</p>}</div>
       </div></div>}
     </section>
   );
