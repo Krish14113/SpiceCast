@@ -1,0 +1,16 @@
+diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
+index 0000000..0000000 100644
+--- a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
++++ b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
+@@ -482,6 +482,11 @@ exports.LoadUtils = () => {
+             ...extraOptions,
+         };
+ 
++        // MediaData models in newer WhatsApp Web versions expose their
++        // internal __x_id as enumerable. It must not overwrite this outgoing
++        // message's MsgKey id, otherwise WhatsApp rejects the media message.
++        delete message.__x_id;
++
+         // Bot's won't reply if canonicalUrl is set (linking)
+         if (botOptions) {
+             delete message.canonicalUrl;

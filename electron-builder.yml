@@ -9,6 +9,7 @@ files:
 asarUnpack:
   - node_modules/whatsapp-web.js/**
   - node_modules/puppeteer-core/**
+  - node_modules/ffmpeg-static/**
 publish:
   provider: github
   owner: Krish14113

@@ -75,6 +75,16 @@ export class WhatsAppService extends EventEmitter {
       throw new Error(`WhatsApp could not load its groups. Try again after it reconnects. (${error instanceof Error ? error.message : String(error)})`)
     }
   }
-  async send(phone: string, message: string, mediaPaths: string[] = []) { if (!this.client || this.status.state !== 'ready') throw new Error('WhatsApp is not connected'); const id = await this.client.getNumberId(phone); if (!id) throw new Error('This number is not registered on WhatsApp'); try { if (mediaPaths.length) { for (let i = 0; i < mediaPaths.length; i++) await this.client.sendMessage(id._serialized, MessageMedia.fromFilePath(mediaPaths[i]), { caption: i === 0 ? message || undefined : undefined }); } else await this.client.sendMessage(id._serialized, message) } catch (error) { const text = error instanceof Error ? error.message : String(error); if (text.includes('Promise was collected')) return; throw error } }
-  async sendGroup(chatId: string, message: string, mediaPaths: string[] = []) { if (!this.client || this.status.state !== 'ready') throw new Error('WhatsApp is not connected'); try { if (mediaPaths.length) { for (let i = 0; i < mediaPaths.length; i++) await this.client.sendMessage(chatId, MessageMedia.fromFilePath(mediaPaths[i]), { caption: i === 0 ? message || undefined : undefined }); } else await this.client.sendMessage(chatId, message) } catch (error) { const text = error instanceof Error ? error.message : String(error); if (text.includes('Promise was collected')) return; throw error } }
+  private async sendVoice(chatId: string, voicePath: string) {
+    if (!this.client) throw new Error('WhatsApp is not connected')
+    const source = MessageMedia.fromFilePath(voicePath)
+    // WhatsApp Web's PTT route currently creates inaccessible media for some
+    // linked-device sessions. A regular MP3 audio message remains playable by
+    // every recipient and uses WhatsApp's normal media upload path.
+    const voice = new MessageMedia('audio/mpeg', source.data, source.filename)
+    await this.client.sendMessage(chatId, voice, { waitUntilMsgSent: true })
+  }
+  private async sendContent(chatId: string, message: string, mediaPaths: string[], voicePath?: string) { if (!this.client || this.status.state !== 'ready') throw new Error('WhatsApp is not connected'); if (mediaPaths.length) { for (let i = 0; i < mediaPaths.length; i++) await this.client.sendMessage(chatId, MessageMedia.fromFilePath(mediaPaths[i]), { caption: i === 0 ? message || undefined : undefined }); } else if (message.trim()) await this.client.sendMessage(chatId, message); if (voicePath) await this.sendVoice(chatId, voicePath) }
+  async send(phone: string, message: string, mediaPaths: string[] = [], voicePath?: string) { if (!this.client || this.status.state !== 'ready') throw new Error('WhatsApp is not connected'); const id = await this.client.getNumberId(phone); if (!id) throw new Error('This number is not registered on WhatsApp'); try { await this.sendContent(id._serialized, message, mediaPaths, voicePath) } catch (error) { const text = error instanceof Error ? error.message : String(error); if (text.includes('Promise was collected')) return; throw error } }
+  async sendGroup(chatId: string, message: string, mediaPaths: string[] = [], voicePath?: string) { try { await this.sendContent(chatId, message, mediaPaths, voicePath) } catch (error) { const text = error instanceof Error ? error.message : String(error); if (text.includes('Promise was collected')) return; throw error } }
 }

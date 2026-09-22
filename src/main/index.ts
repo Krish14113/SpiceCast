@@ -1,8 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, powerSaveBlocker, shell } from 'electron'
-import { rm } from 'node:fs/promises'
+import { app, BrowserWindow, dialog, ipcMain, Menu, powerSaveBlocker, session, shell } from 'electron'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import ffmpegStatic from 'ffmpeg-static'
 import Papa from 'papaparse'
 import { parsePhoneNumberFromString } from 'libphonenumber-js'
 import { getData, loadData, readCampaigns, readMessages, resetData, scheduleSave } from './store'
@@ -27,6 +30,19 @@ function getWhatsApp(accountId = 'primary') {
   return service
 }
 const accountFor = (accountId: string) => getData().accounts.find(account => account.id === accountId)
+// Browsers record microphone audio as WebM. Convert it to a broadly supported
+// audio attachment before WhatsApp Web uploads it.
+async function convertVoiceToWhatsAppFormat(input: string, output: string) {
+  const bundledPath = ffmpegStatic && (app.isPackaged ? ffmpegStatic.replace('app.asar', 'app.asar.unpacked') : ffmpegStatic)
+  if (!bundledPath || !existsSync(bundledPath)) throw new Error('The voice-message converter is unavailable. Please reinstall SpiceCast.')
+  await new Promise<void>((resolve, reject) => {
+    const process = spawn(bundledPath, ['-y', '-i', input, '-vn', '-c:a', 'libmp3lame', '-ar', '16000', '-ac', '1', '-b:a', '32k', output], { windowsHide: true })
+    let errorOutput = ''
+    process.stderr?.on('data', chunk => { errorOutput += String(chunk) })
+    process.once('error', error => reject(new Error(`Could not prepare the voice message: ${error.message}`)))
+    process.once('close', code => code === 0 ? resolve() : reject(new Error(`Could not prepare the voice message${errorOutput ? ` (${errorOutput.trim().split('\n').at(-1)})` : ''}.`)))
+  })
+}
 queue.on('progress', value => { send('send:progress', value); if (!value.running && value.campaign) { restoreInputFocus(); setTimeout(restoreInputFocus, 150) } })
 autoUpdater.autoDownload = false
 autoUpdater.autoInstallOnAppQuit = true
@@ -89,9 +105,10 @@ function registerIpc() {
   ipcMain.handle('history:campaigns', readCampaigns); ipcMain.handle('history:messages', (_, id: string) => readMessages(id))
   ipcMain.handle('wa:connect', (_, accountId = 'primary') => { if (!accountFor(accountId)) throw new Error('This sending account no longer exists.'); return getWhatsApp(accountId).connect(getData().settings.chromePath) }); ipcMain.handle('wa:logout', (_, accountId = 'primary') => getWhatsApp(accountId).logout()); ipcMain.handle('wa:status', (_, accountId = 'primary') => getWhatsApp(accountId).status)
   ipcMain.handle('wa:groups', (_, accountId = 'primary') => getWhatsApp(accountId).getGroups())
-  ipcMain.handle('send:start', (_, accountId: string, ids: string[], message: string, listNames: string[], mediaPaths: string[] = [], waGroups: Array<{ id: string; name: string }> = []) => { if (!accountFor(accountId)) throw new Error('Choose a valid sending account.'); const wa = getWhatsApp(accountId); if (queue.state.running) throw new Error('A process is already running'); if (!message.trim() && !mediaPaths.length) throw new Error('Add a message or a media file.'); if (mediaPaths.length > 10) throw new Error('You can attach up to 10 files.'); const hasPdf = mediaPaths.some(path => path.toLowerCase().endsWith('.pdf')); const hasNonPdf = mediaPaths.some(path => !path.toLowerCase().endsWith('.pdf')); if (hasPdf && hasNonPdf) throw new Error('PDFs cannot be mixed with photos or videos in the same message.'); if (wa.status.state !== 'ready') throw new Error(`Connect the selected account before sending a message.`); const contacts = getData().contacts.filter(c => ids.includes(c.id)); const targets = [...contacts, ...waGroups.map(group => ({ id: `wa-group:${group.id}`, name: group.name, chatId: group.id }))]; void queue.start(targets, message, [...listNames, ...waGroups.map(group => `WhatsApp: ${group.name}`)], getData().settings, wa, mediaPaths); return { started: true } }); ipcMain.handle('send:pause', () => queue.pause()); ipcMain.handle('send:resume', () => queue.resumeJob()); ipcMain.handle('send:stop', () => queue.stop())
+  ipcMain.handle('send:start', (_, accountId: string, ids: string[], message: string, listNames: string[], mediaPaths: string[] = [], waGroups: Array<{ id: string; name: string }> = [], voicePath?: string) => { if (!accountFor(accountId)) throw new Error('Choose a valid sending account.'); const wa = getWhatsApp(accountId); if (queue.state.running) throw new Error('A process is already running'); if (!message.trim() && !mediaPaths.length && !voicePath) throw new Error('Add a message, media file, or voice message.'); if (mediaPaths.length > 10) throw new Error('You can attach up to 10 files.'); const hasPdf = mediaPaths.some(path => path.toLowerCase().endsWith('.pdf')); const hasNonPdf = mediaPaths.some(path => !path.toLowerCase().endsWith('.pdf')); if (hasPdf && hasNonPdf) throw new Error('PDFs cannot be mixed with photos or videos in the same message.'); if (wa.status.state !== 'ready') throw new Error(`Connect the selected account before sending a message.`); const contacts = getData().contacts.filter(c => ids.includes(c.id)); const targets = [...contacts, ...waGroups.map(group => ({ id: `wa-group:${group.id}`, name: group.name, chatId: group.id }))]; void queue.start(targets, message, [...listNames, ...waGroups.map(group => `WhatsApp: ${group.name}`)], getData().settings, wa, mediaPaths, voicePath); return { started: true } }); ipcMain.handle('send:pause', () => queue.pause()); ipcMain.handle('send:resume', () => queue.resumeJob()); ipcMain.handle('send:stop', () => queue.stop())
   ipcMain.handle('dialog:openCsv', async () => { const result = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'CSV files', extensions: ['csv'] }] }); return result.canceled ? null : (await import('node:fs/promises')).readFile(result.filePaths[0], 'utf8') })
   ipcMain.handle('dialog:openMedia', async () => { const result = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'], filters: [{ name: 'Images, videos, and PDF files', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'mov', 'avi', 'mkv', 'pdf'] }] }); return result.canceled ? [] : result.filePaths })
+  ipcMain.handle('voice:save', async (_, dataUrl: string) => { const match = /^data:(audio\/[^;,]+)(?:;[^,]*)?;base64,([a-z0-9+/=]+)$/i.exec(dataUrl); if (!match) throw new Error('The recorded audio format is not supported.'); const audio = Buffer.from(match[2], 'base64'); if (!audio.length || audio.length > 25 * 1024 * 1024) throw new Error('Voice messages must be smaller than 25 MB.'); const extension = match[1].includes('ogg') ? 'ogg' : match[1].includes('mp4') ? 'm4a' : 'webm'; const directory = join(app.getPath('userData'), 'voice-recordings'); await mkdir(directory, { recursive: true }); const source = join(directory, `voice-source-${randomUUID()}.${extension}`), output = join(directory, `voice-${randomUUID()}.mp3`); await writeFile(source, audio); try { await convertVoiceToWhatsAppFormat(source, output); return output } catch (error) { await rm(output, { force: true }); throw error } finally { await rm(source, { force: true }) } })
   ipcMain.handle('data:reveal', () => shell.openPath(app.getPath('userData'))); ipcMain.handle('data:reset', resetData)
 }
-app.whenReady().then(async () => { sleepBlockerId = powerSaveBlocker.start('prevent-app-suspension'); await loadData(); registerIpc(); createWindow(); app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow() }) }); app.on('before-quit', () => { if (sleepBlockerId !== undefined && powerSaveBlocker.isStarted(sleepBlockerId)) powerSaveBlocker.stop(sleepBlockerId); for (const service of waServices.values()) void service.disconnect() }); app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+app.whenReady().then(async () => { sleepBlockerId = powerSaveBlocker.start('prevent-app-suspension'); session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => callback(permission === 'media')); await loadData(); registerIpc(); createWindow(); app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow() }) }); app.on('before-quit', () => { if (sleepBlockerId !== undefined && powerSaveBlocker.isStarted(sleepBlockerId)) powerSaveBlocker.stop(sleepBlockerId); for (const service of waServices.values()) void service.disconnect() }); app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

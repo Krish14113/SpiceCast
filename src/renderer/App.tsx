@@ -776,11 +776,22 @@ function Compose({ account, data, job, notify }: any) {
     "spicecast.compose.media",
     [],
   );
+  const [voiceRecording, setVoiceRecording] = useRuntimeDraftState<any>(
+    "spicecast.compose.voice-recording",
+    null,
+  );
   const [waGroups, setWaGroups] = useState<any[]>([]),
     [picker, setPicker] = useState(false),
     [search, setSearch] = useState(""),
     [notice, setNotice] = useState(""),
-    [confirmingSend, setConfirmingSend] = useState(false);
+    [confirmingSend, setConfirmingSend] = useState(false),
+    [recording, setRecording] = useState(false),
+    [recordingSeconds, setRecordingSeconds] = useState(0),
+    [savingVoice, setSavingVoice] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null),
+    recordingStreamRef = useRef<MediaStream | null>(null),
+    recordingStartedAtRef = useRef(0),
+    recordingTimerRef = useRef<number | null>(null);
   const wasSending = useRef(false);
   useEffect(() => {
     if (job.running) {
@@ -836,6 +847,76 @@ function Compose({ account, data, job, notify }: any) {
       );
     }
   };
+  const formatRecordingTime = (seconds: number) =>
+    `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+  const startVoiceRecording = async () => {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder)
+        throw new Error("Voice recording is not supported on this computer.");
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm"]
+        .find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunks.push(event.data);
+      };
+      recorder.onstop = async () => {
+        if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+        const duration = Math.max(1, (Date.now() - recordingStartedAtRef.current) / 1000);
+        recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+        recordingStreamRef.current = null;
+        recorderRef.current = null;
+        setRecording(false);
+        if (!chunks.length) return;
+        setSavingVoice(true);
+        try {
+          const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || "audio/webm" });
+          const audioUrl = URL.createObjectURL(blob);
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.onerror = () => reject(new Error("Could not read the voice recording."));
+            reader.readAsDataURL(blob);
+          });
+          const path = await window.api.saveVoiceRecording(dataUrl);
+          setVoiceRecording({ path, audioUrl, duration });
+          notify("Voice message ready to send.");
+        } catch (error) {
+          notify(error instanceof Error ? error.message : "Voice recording could not be saved.", true);
+        } finally {
+          setSavingVoice(false);
+        }
+      };
+      recorder.onerror = (event) => {
+        if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+        setRecording(false);
+        notify(`Voice recording stopped unexpectedly: ${event.error?.message || event.error?.name || "unknown microphone error"}.`, true);
+      };
+      recordingStreamRef.current = stream;
+      recorderRef.current = recorder;
+      recordingStartedAtRef.current = Date.now();
+      setRecordingSeconds(0);
+      recordingTimerRef.current = window.setInterval(() =>
+        setRecordingSeconds((Date.now() - recordingStartedAtRef.current) / 1000),
+      250);
+      recorder.start();
+      setRecording(true);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Microphone access was not granted.", true);
+    }
+  };
+  const stopVoiceRecording = () => recorderRef.current?.state === "recording" && recorderRef.current.stop();
+  const removeVoiceRecording = () => {
+    if (voiceRecording?.audioUrl?.startsWith("blob:")) URL.revokeObjectURL(voiceRecording.audioUrl);
+    setVoiceRecording(null);
+  };
+  useEffect(() => () => {
+    if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
+    recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
   const loadWaGroups = async () => {
     try {
       const loaded = await window.api.waGroups(account.id);
@@ -850,7 +931,7 @@ function Compose({ account, data, job, notify }: any) {
     }
   };
   const requestStart = () => {
-    if (!targets || (!message.trim() && !mediaPaths.length))
+    if (!targets || (!message.trim() && !mediaPaths.length && !voiceRecording?.path))
       return setNotice(
         "Choose a broadcast or WhatsApp group, and add a message or media file.",
       );
@@ -868,12 +949,13 @@ function Compose({ account, data, job, notify }: any) {
           .map((g: any) => g.name),
         mediaPaths,
         waGroups.filter((group) => selectedWaGroups.includes(group.id)),
+        voiceRecording?.path,
       );
       setNotice("Started sending messages.");
       notify("Started sending messages.");
     } catch (e) {
       setNotice(e instanceof Error ? e.message : String(e));
-      notify("Campaign could not start.", true);
+      notify("Please connect to WhatsApp first.", true);
     }
   };
   return (
@@ -979,7 +1061,15 @@ function Compose({ account, data, job, notify }: any) {
               <button onClick={chooseMedia}>Attach media</button>
             )}
           </div>
+          <div className="voiceMessage">
+            <div>
+              <b>Voice message</b>
+              <p className="muted">Record a voice message with your microphone.</p>
+            </div>
+            {recording ? <button className="danger recordingButton" onClick={stopVoiceRecording}>● Stop recording · {formatRecordingTime(recordingSeconds)}</button> : savingVoice ? <button disabled>Saving voice…</button> : voiceRecording ? <div className="voicePreview"><audio controls preload="metadata" src={voiceRecording.audioUrl} onError={(event) => notify(`This voice recording could not be played (${event.currentTarget.error?.message || "unsupported audio"}). Please record it again.`, true)} /><span>{formatRecordingTime(voiceRecording.duration || 0)}</span><button onClick={removeVoiceRecording}>Remove</button><button onClick={startVoiceRecording}>Record again</button></div> : <button onClick={startVoiceRecording}>🎙 Record voice</button>}
+          </div>
         </div>
+        <br/>
         <button
           className="primary send"
           onClick={requestStart}

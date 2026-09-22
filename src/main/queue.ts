@@ -22,7 +22,7 @@ export class SendQueue extends EventEmitter {
   resumeJob() { this.state.paused = false; this.resume?.(); this.resume = undefined; this.publish() }
   stop() { this.stopped = true; this.resumeJob() }
   private async wait() { if (!this.state.paused) return; await new Promise<void>(resolve => this.resume = resolve) }
-  async start(contacts: SendTarget[], message: string, groups: string[], settings: Settings, wa: WhatsAppService, mediaPaths: string[] = []) {
+  async start(contacts: SendTarget[], message: string, groups: string[], settings: Settings, wa: WhatsAppService, mediaPaths: string[] = [], voicePath?: string) {
     if (this.state.running) throw new Error('A process is already running')
     if (wa.status.state !== 'ready') throw new Error('Connect WhatsApp before sending.')
     this.stopped = false; this.averageDelaySeconds = Math.max(0, (settings.minDelaySec + settings.maxDelaySec) / 2); const campaign: Campaign = { id: randomUUID(), startedAt: new Date().toISOString(), messagePreview: message.slice(0, 140), message, hasMedia: Boolean(mediaPaths.length), mediaName: mediaPaths.map(path => path.split(/[\\/]/).pop()).join(', '), targetGroupNames: groups, total: contacts.length, sent: 0, failed: 0, status: 'running' }
@@ -31,7 +31,7 @@ export class SendQueue extends EventEmitter {
       await this.wait(); if (this.stopped) break
       const contact = contacts[i]; this.state.current = contact.name; this.state.countdown = undefined; this.publish()
       let status: 'sent' | 'failed' = 'sent', error: string | undefined
-      const deliver = () => 'chatId' in contact ? wa.sendGroup(contact.chatId, message, mediaPaths) : wa.send(contact.phone, message, mediaPaths)
+      const deliver = () => 'chatId' in contact ? wa.sendGroup(contact.chatId, message, mediaPaths, voicePath) : wa.send(contact.phone, message, mediaPaths, voicePath)
       try { await deliver() } catch (e) {
         if (wa.isStaleSessionError(e)) {
           try { this.state.current = 'Reconnecting WhatsApp…'; this.publish(); await wa.recover(); if (!this.stopped) { this.state.current = contact.name; this.publish(); await deliver() } } catch (retryError) { status = 'failed'; error = retryError instanceof Error ? retryError.message : String(retryError) }
