@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
-import spiceStarLogo from "./assets/spice-star-logo.png";
+import spiceStarLogo from "./assets/gattaniji-logo.png";
 type Tab =
   "connect" | "contacts" | "lists" | "compose" | "history" | "settings";
 const nav: [Tab, string][] = [
@@ -188,9 +188,9 @@ export function App() {
             alt="Spice Star"
             style={{ width: 200, height: 120, objectFit: "contain" }}
           />
-          <strong style={{ fontSize: 21, lineHeight: 1.1 }}>SpiceCast</strong>
+          <strong style={{ fontSize: 21, lineHeight: 1.1 }}>MO_Connect</strong>
           <small style={{ margin: 0, fontSize: 11, lineHeight: 1.2 }}>
-            SSFST Broadcast
+            Broadcast
           </small>
         </div>
         {nav.map(([id, label]) => (
