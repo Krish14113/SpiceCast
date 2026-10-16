@@ -637,6 +637,22 @@ function Lists({ data, refresh, notify }: any) {
       const bIsMember = Boolean(list && b.groupIds.includes(list.id));
       return Number(bIsMember) - Number(aIsMember) || a.name.localeCompare(b.name);
     });
+  const memberIdSet = useMemo(() => new Set(members.map((contact: any) => contact.id)), [members]);
+  const pickedContactIdSet = useMemo(() => new Set(pickedContactIds), [pickedContactIds]);
+  const selectableContactIds = useMemo<string[]>(
+    () => data.contacts.filter((contact: any) => !memberIdSet.has(contact.id)).map((contact: any) => String(contact.id)),
+    [data.contacts, memberIdSet],
+  );
+  const allContactsSelected = selectableContactIds.length > 0 && selectableContactIds.every((id: string) => pickedContactIdSet.has(id));
+  const toggleAllContacts = () => setPickedContactIds((current) => {
+    const existing = new Set(current);
+    if (allContactsSelected) {
+      selectableContactIds.forEach((id: string) => existing.delete(id));
+    } else {
+      selectableContactIds.forEach((id: string) => existing.add(id));
+    }
+    return [...existing];
+  });
   const rename = async () => {
     if (!list || !name.trim()) return;
     await window.api.saveGroup({ id: list.id, name: name.trim(), createdAt: list.createdAt });
@@ -749,9 +765,13 @@ function Lists({ data, refresh, notify }: any) {
     </div></div>}
     {pickerOpen && list && <div className="modal"><div className="dialog contactPicker">
       <div className="listHeader"><div><h2>Add contacts to {list.name}</h2><p className="muted">Search your contacts, select one or more, then save.</p></div></div>
-      <input autoFocus placeholder="Search contacts…" value={pickerQuery} onChange={(event) => setPickerQuery(event.target.value)} />
+      <div className="pickerToolbar">
+        <input autoFocus placeholder="Search contacts…" value={pickerQuery} onChange={(event) => setPickerQuery(event.target.value)} />
+        <button type="button" onClick={toggleAllContacts} disabled={!selectableContactIds.length}>{allContactsSelected ? "Unselect all" : "Select all contacts"}</button>
+      </div>
+      <p className="pickerSelectionCount">{pickedContactIds.filter((id) => !memberIdSet.has(id)).length.toLocaleString()} selected</p>
       <div className="pickerRows contactPickerRows">
-        {pickerContacts.map((contact: any) => { const isMember = contact.groupIds.includes(list.id); return <label className={isMember ? "existingMember" : ""} key={contact.id}><input type="checkbox" checked={pickedContactIds.includes(contact.id)} disabled={isMember} onChange={() => setPickedContactIds((current) => current.includes(contact.id) ? current.filter((id) => id !== contact.id) : [...current, contact.id])} /><b>{contact.name}</b>{isMember && <em>Added</em>}<small>+{contact.phone}</small></label>; })}
+        {pickerContacts.map((contact: any) => { const isMember = memberIdSet.has(contact.id); return <label className={isMember ? "existingMember" : ""} key={contact.id}><input type="checkbox" checked={pickedContactIdSet.has(contact.id)} disabled={isMember} onChange={() => setPickedContactIds((current) => current.includes(contact.id) ? current.filter((id) => id !== contact.id) : [...current, contact.id])} /><b>{contact.name}</b>{isMember && <em>Added</em>}<small>+{contact.phone}</small></label>; })}
         {!pickerContacts.length && <p className="muted">No contacts match your search.</p>}
       </div>
       <div className="actions"><button onClick={() => setPickerOpen(false)}>Cancel</button><button className="primary" disabled={!pickedContactIds.some((id) => !members.some((contact: any) => contact.id === id))} onClick={addPickedContacts}>Save selection</button></div>
